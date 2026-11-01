@@ -1,11 +1,37 @@
 {
   "name": "ccretro",
-  "version": "0.1.0",
-  "description": "A monthly-review style retrospective of your Claude Code usage, rendered as a local web page.",
+  "version": "0.2.0",
+  "description": "A monthly-review style retrospective of your Claude Code usage, rendered as a local web page, plus a skill that acts on it.",
   "type": "module",
-  "bin": { "ccretro": "bin/ccretro.mjs" },
-  "files": ["bin", "src"],
-  "engines": { "node": ">=20" },
+  "bin": {
+    "ccretro": "bin/ccretro.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "skills",
+    ".claude-plugin"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "license": "MIT",
-  "keywords": ["claude", "claude-code", "retrospective", "analytics"]
+  "keywords": [
+    "claude",
+    "claude-code",
+    "retrospective",
+    "analytics"
+  ],
+  "scripts": {
+    "test": "node --test test/ccretro.test.mjs",
+    "lint": "eslint . && markdownlint-cli2 \"**/*.md\"",
+    "build": "node scripts/check-build.mjs",
+    "check": "npm run lint && npm run build && npm test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.14.0",
+    "globals": "^17.14.0",
+    "markdownlint-cli2": "^0.24.0"
+  }
 }
