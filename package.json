@@ -1,0 +1,11 @@
+{
+  "name": "ccretro",
+  "version": "0.1.0",
+  "description": "A monthly-review style retrospective of your Claude Code usage, rendered as a local web page.",
+  "type": "module",
+  "bin": { "ccretro": "bin/ccretro.mjs" },
+  "files": ["bin", "src"],
+  "engines": { "node": ">=20" },
+  "license": "MIT",
+  "keywords": ["claude", "claude-code", "retrospective", "analytics"]
+}
