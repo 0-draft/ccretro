@@ -1,0 +1,16 @@
+{
+  "name": "ccretro",
+  "owner": {
+    "name": "0-draft"
+  },
+  "plugins": [
+    {
+      "name": "ccretro",
+      "source": "./",
+      "description": "Retrospective of your Claude Code usage, and a /ccretro skill that applies its suggestions."
+    }
+  ],
+  "metadata": {
+    "description": "ccretro: a retrospective of your Claude Code usage that turns into concrete config changes."
+  }
+}

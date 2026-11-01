@@ -4,7 +4,8 @@ import { spawn } from 'node:child_process';
 
 const WD = { ja: ['日', '月', '火', '水', '木', '金', '土'], en: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] };
 
-const SCHEMA = {
+// In share mode the field descriptions must not ask for quotes or paths.
+const schema = (redact) => ({
   type: 'object',
   required: ['headline', 'summary', 'themes', 'fluency', 'patterns', 'nextActions'],
   properties: {
@@ -22,7 +23,7 @@ const SCHEMA = {
         properties: {
           title: { type: 'string', description: 'one-line verdict' },
           body: { type: 'string', description: '1-2 sentences' },
-          evidence: { type: 'string', description: 'a concrete number or quoted prompt from the data; empty if not enough signal' },
+          evidence: { type: 'string', description: redact ? 'a concrete number from the data; no names or quotes; empty if not enough signal' : 'a concrete number or quoted prompt from the data; empty if not enough signal' },
           prompt: { type: 'string', description: 'optional: a ready-to-paste prompt/instruction the user could use to improve this' },
         } }])),
     },
@@ -30,20 +31,26 @@ const SCHEMA = {
       type: 'array', maxItems: 4, description: 'Notable habits — good or costly — grounded in the numbers.',
       items: { type: 'object', required: ['title', 'detail'], properties: { title: { type: 'string' }, detail: { type: 'string' } } },
     },
+    followUp: {
+      type: 'array', maxItems: 6,
+      description: 'Only when PREVIOUS SUGGESTIONS are given: did each one happen? Judge from EXISTING SETUP, usage and repeated-prompt counts.',
+      items: { type: 'object', required: ['title', 'status', 'evidence'], properties: {
+        title: { type: 'string' }, status: { type: 'string', enum: ['done', 'partial', 'not-yet', 'unclear'] }, evidence: { type: 'string' } } },
+    },
     nextActions: {
       type: 'array', minItems: 3, maxItems: 6,
       items: { type: 'object', required: ['title', 'why', 'how', 'kind'], properties: {
         title: { type: 'string' },
         why: { type: 'string', description: 'which observed data motivates it' },
-        how: { type: 'string', description: 'concrete first step: a file to create, a setting, a command' },
+        how: { type: 'string', description: redact ? 'concrete first step, described generically (no real paths or names)' : 'concrete first step: a file to create, a setting, a command' },
         kind: { type: 'string', enum: ['skill', 'hook', 'claude-md', 'permissions', 'subagent', 'workflow', 'habit', 'project'] },
-        snippet: { type: 'string', description: 'optional ready-to-use content (SKILL.md body, settings JSON, prompt)' },
+        snippet: { type: 'string', description: redact ? 'optional generic template, no names from the data' : 'optional ready-to-use content (SKILL.md body, settings JSON, prompt)' },
       } },
     },
   },
-};
+});
 
-export function digest(r, inv, lang) {
+export function digest(r, inv, lang, previous) {
   const wd = WD[lang] || WD.en;
   const sampleN = 140;
   const ps = r.prompts.filter((p) => !p.cmd);
@@ -54,6 +61,8 @@ export function digest(r, inv, lang) {
     `PERIOD: last ${r.period.days || 'all'} days`,
     `TOTALS: sessions=${r.totals.sessions} prompts=${r.totals.prompts} activeDays=${r.totals.activeDays} bestStreak=${r.totals.bestStreak} activeHours(wall-clock, parallel sessions merged)=${r.totals.activeHours} claudeTurnHours(summed across parallel sessions)=${r.totals.claudeHours} toolCalls=${r.totals.toolCalls} projects=${r.totals.projects}`,
     `RHYTHM: peakWeekday=${wd[r.totals.peakWeekday]} peakHour=${r.totals.peakHour}:00 lateNight(0-5h)share=${(r.totals.lateNightShare * 100).toFixed(0)}%`,
+    ...(r.compare ? [`VS PREVIOUS ${r.period.days} DAYS: ${Object.entries(r.compare).map(([k, v]) => `${k} ${v.prev}→${v.now}`).join(', ')}`] : []),
+    `CACHE: hitRate=${(r.totals.cacheHitRate * 100).toFixed(0)}% of input tokens served from prompt cache`,
     `PROMPT STYLE: medianChars=${r.style.medianChars} short(<=15 chars)=${(r.style.shareShort * 100).toFixed(0)}% long(>=400)=${(r.style.shareLong * 100).toFixed(0)}% withImages=${r.style.withImages}`,
     `DELEGATION: subagentCalls=${r.usage.delegation.agentCalls} skillCalls=${r.usage.delegation.skillCalls} toolCallsPerPrompt=${r.usage.delegation.toolCallsPerPrompt}`,
     `FRICTION: interrupts=${r.friction.interrupts} (${r.friction.interruptsPer100}/100 prompts) rejectedToolUses=${r.friction.rejects} toolErrors=${r.friction.toolErrors} (${r.friction.errorRate}% of tool calls) compactions=${r.friction.compacts}`,
@@ -78,6 +87,8 @@ export function digest(r, inv, lang) {
     `user subagents: ${inv.agents.join(', ') || 'none'}`,
     `user commands: ${inv.commands.join(', ') || 'none'}`,
     `per-project: ${inv.projectClaudeMd.map((p) => `${p.project}(CLAUDE.md=${p.claudeMd ? 'y' : 'n'},skills=${p.projectSkills})`).join(', ')}`,
+    ...(previous ? ['', `PREVIOUS SUGGESTIONS (from ${previous.generatedAt.slice(0, 10)}):`,
+      ...previous.nextActions.map((a) => `- [${a.kind}] ${a.title} — ${a.how}`)] : []),
     '',
     `SAMPLED USER PROMPTS (${sample.length} of ${ps.length}, chronological):`,
     ...sample,
@@ -85,19 +96,32 @@ export function digest(r, inv, lang) {
   return lines.join('\n');
 }
 
-const SYSTEM = (lang) => `You write a personal retrospective of someone's Claude Code usage, like a thoughtful monthly review. Input is aggregated local stats plus sampled prompts.
+// Share mode gets its own prompt rather than a rule appended to the normal one,
+// so nothing in it asks for quotes.
+const SHARE = (lang) => `You write a personal retrospective of someone's Claude Code usage that they will share publicly. Input is aggregated local stats plus sampled prompts; names in it are already aliased ("project 3", "skill 2").
+Rules:
+- Write in ${lang === 'ja' ? 'Japanese (natural, plain, warm but not gushing; no AI-ish flourishes, no emoji)' : 'English (plain, warm but not gushing, no emoji)'}.
+- Never name or hint at specific projects, repositories, organisations, companies, products, people, file paths, URLs, session titles, or custom skill/agent/command names, even if they appear inside sampled prompts. Never quote a prompt. Use the aliases or generic descriptions ("an OSS security research project").
+- Ground claims in numbers from the data. If signal is thin, say so.
+- "fluency" follows the 4D AI Fluency framework: delegation, description, discernment, diligence.
+- nextActions stay generic and reusable; snippets must not contain anything from the data.
+- Leave followUp empty. Be concise. Do not lecture.`;
+
+const SYSTEM = (lang, redact) => redact ? SHARE(lang) : `You write a personal retrospective of someone's Claude Code usage, like a thoughtful monthly review. Input is aggregated local stats plus sampled prompts.
 Rules:
 - Write in ${lang === 'ja' ? 'Japanese (natural, plain, warm but not gushing; no AI-ish flourishes, no emoji)' : 'English (plain, warm but not gushing, no emoji)'}.
 - Ground every claim in the data. Quote short prompt fragments or numbers as evidence. If signal is thin for an item, say so plainly instead of inventing.
 - "fluency" follows the 4D AI Fluency framework: delegation (what they hand to Claude vs keep), description (how well they convey goals/context/constraints), discernment (how they evaluate and push back on output), diligence (responsibility: verification, security, what they ship).
 - nextActions must be specific to THIS person: e.g. turn a repeated prompt into a skill or hook, add permission allow rules for friction, add CLAUDE.md to busy projects lacking one, use subagents/plan mode where it would help. Never suggest something listed under EXISTING SETUP. Include a snippet when it saves them work.
+- If PREVIOUS SUGGESTIONS are given, fill followUp honestly (a skill that now exists = done; the repeated prompt still frequent = not-yet). Don't re-suggest something done; if one is not-yet and still matters, you may carry it forward with a smaller first step.
 - Do not mention personal names of third parties that appear in prompts; refer to them generically.
 - Do not lecture. Be concise.`;
 
-export function runClaude(text, { lang, model, timeoutMs = 300e3 }) {
+export function runClaude(text, { lang, model, redact = false, timeoutMs = 300e3 }) {
+  // followUp stays optional in the schema; the system prompt says when to fill it.
   return new Promise((resolve, reject) => {
     const args = ['-p', '--output-format', 'json', '--no-session-persistence', '--tools', '',
-      '--strict-mcp-config', '--json-schema', JSON.stringify(SCHEMA), '--system-prompt', SYSTEM(lang)];
+      '--strict-mcp-config', '--json-schema', JSON.stringify(schema(redact)), '--system-prompt', SYSTEM(lang, redact)];
     if (model) args.push('--model', model);
     const child = spawn(process.env.CCRETRO_CLAUDE_BIN || 'claude', args, { stdio: ['pipe', 'pipe', 'pipe'] });
     let out = '', err = '';

@@ -8,7 +8,7 @@ const add = (dst, src) => { for (const [k, v] of Object.entries(src || {})) dst[
 const top = (o, n = 10) => Object.entries(o).sort((a, b) => b[1] - a[1]).slice(0, n);
 const sum = (o) => Object.values(o).reduce((a, b) => a + b, 0);
 
-function projectName(cwd) {
+export function projectName(cwd) {
   if (!cwd) return '(unknown)';
   const home = os.homedir();
   if (cwd === home) return '~';
@@ -35,8 +35,10 @@ function union(spans) {
 }
 const spanMs = (xs) => xs.reduce((a, [x, y]) => a + (y - x), 0);
 
-export function analyze(sessions, { days }) {
-  const now = Date.now();
+// `until` lets the CLI compute the previous period for comparison.
+export function analyze(sessions, { days, until }) {
+  const now = until ?? Date.now();
+  const toKey = dayKey(now);
   const from = days ? now - days * 86400e3 : 0;
   const fromKey = days ? dayKey(from) : '0000';
 
@@ -60,7 +62,8 @@ export function analyze(sessions, { days }) {
   for (const s of sessions) {
     let touched = false;
     for (const [k, d] of Object.entries(s.days)) {
-      if (k < fromKey) continue;
+      // With `until`, the end day belongs to the following period, so it is exclusive.
+      if (k < fromKey || (until ? k >= toKey : k > toKey)) continue;
       touched = true;
       const dd = (daily[k] ||= { prompts: 0, activeMs: 0, sessions: 0, tokens: 0 });
       dd.tokens += d.tok.in + d.tok.out + d.tok.cr + d.tok.cc;
@@ -72,14 +75,14 @@ export function analyze(sessions, { days }) {
     const owner = s.isSub ? byId.get(s.sessionId) : s;
     const pname = projectName(owner?.cwd || s.cwd);
     const pj = (projects[pname] ||= { name: pname, cwd: owner?.cwd || s.cwd, prompts: 0, sessions: 0, activeMs: 0, titles: [] });
-    const clipped = (s.spans || []).map(([a, b]) => [Math.max(a, from), b]).filter(([a, b]) => b > a);
+    const clipped = (s.spans || []).map(([a, b]) => [Math.max(a, from), Math.min(b, now)]).filter(([a, b]) => b > a);
     allSpans.push(...clipped);
     (projSpans[pname] ||= []).push(...clipped);
     if (s.isSub) continue;
     Object.entries(s.permissionModes).forEach(([k, v]) => { perm[k] = (perm[k] || 0) + v; });
     // Headless runs (claude -p / SDK) are automation, not the person typing.
     const headless = /^sdk/.test(s.entrypoint || '');
-    const ps = headless ? [] : s.prompts.filter((p) => p.t >= from && !(p.u && seen.has(p.u)));
+    const ps = headless ? [] : s.prompts.filter((p) => p.t >= from && p.t < now && !(p.u && seen.has(p.u)));
     ps.forEach((p) => p.u && seen.add(p.u));
     pj.prompts += ps.length;
     if (ps.length) {
@@ -168,6 +171,7 @@ export function analyze(sessions, { days }) {
     totals: {
       sessions: sessionList.length, prompts: tot.prompts, activeDays, bestStreak: best,
       activeHours: Math.round((spanMs(active) / 3600e3) * 10) / 10,
+      cacheHitRate: (tot.tok.in + tot.tok.cr + tot.tok.cc) ? tot.tok.cr / (tot.tok.in + tot.tok.cr + tot.tok.cc) : 0,
       claudeHours: Math.round((tot.turnMs / 3600e3) * 10) / 10,
       tokens: tot.tok, toolCalls, peakWeekday: peakWd, peakHour: peakHr,
       lateNightShare: tot.prompts ? lateNight / prompts.length : 0,
@@ -217,4 +221,17 @@ export function inventory(report) {
     outputStyle: settings.outputStyle || null,
     projectClaudeMd,
   };
+}
+
+// Change vs the previous period of the same length, for the KPI row.
+export function compare(cur, prev) {
+  const pick = (r) => ({
+    prompts: r.totals.prompts, sessions: r.totals.sessions, activeHours: r.totals.activeHours,
+    activeDays: r.totals.activeDays, projects: r.totals.projects,
+    interruptsPer100: r.friction.interruptsPer100, errorRate: r.friction.errorRate,
+    agentCalls: r.usage.delegation.agentCalls, skillCalls: r.usage.delegation.skillCalls,
+  });
+  const a = pick(cur), b = pick(prev);
+  if (!prev.totals.prompts) return null;
+  return Object.fromEntries(Object.keys(a).map((k) => [k, { now: a[k], prev: b[k] }]));
 }

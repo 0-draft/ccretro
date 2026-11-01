@@ -13,8 +13,10 @@ export function claudeHome() {
   return process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
 }
 
-function cacheDir() {
-  const base = process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache');
+// Durable, not a cache: summaries of transcripts Claude Code has since deleted
+// (cleanupPeriodDays) live only here, which is what makes long-range retros possible.
+export function dataDir() {
+  const base = process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share');
   return path.join(base, 'ccretro');
 }
 
@@ -168,29 +170,58 @@ async function summarize(file) {
   return s;
 }
 
-export async function collect({ onProgress } = {}) {
+export async function collect({ onProgress, warn = (m) => process.stderr.write(`warning: ${m}\n`) } = {}) {
   const root = path.join(claudeHome(), 'projects');
   const files = listTranscripts(root);
-  const cdir = cacheDir();
-  fs.mkdirSync(cdir, { recursive: true });
-  const cfile = path.join(cdir, 'index.json');
+  const cdir = dataDir();
+  const cfile = path.join(cdir, 'archive.json');
   let cache = {};
-  try {
-    const raw = JSON.parse(fs.readFileSync(cfile, 'utf8'));
-    if (raw.v === CACHE_VERSION && raw.tz === new Date().getTimezoneOffset()) cache = raw.files;
-  } catch { /* cold cache */ }
+  let sameTz = true;
+  let raw = null;
+  try { raw = fs.readFileSync(cfile, 'utf8'); } catch { /* first run */ }
+  if (raw !== null) {
+    try {
+      const j = JSON.parse(raw);
+      if (j.v === CACHE_VERSION) { cache = j.files; sameTz = j.tz === new Date().getTimezoneOffset(); }
+      else {
+        // Never silently drop archived history: park it next to the new file.
+        const keep = path.join(cdir, `archive.v${j.v}.json`);
+        try { fs.renameSync(cfile, keep); } catch { /* best effort */ }
+        warn(`archive format changed (v${j.v} → v${CACHE_VERSION}); old archive kept at ${keep}`);
+      }
+    } catch (e) {
+      const keep = path.join(cdir, `archive.corrupt-${Date.now()}.json`);
+      try { fs.renameSync(cfile, keep); } catch { /* best effort */ }
+      warn(`could not parse ${cfile} (${e.message}); moved it to ${keep}`);
+    }
+  }
 
   const next = {};
   const out = [];
   let parsed = 0;
+  let archived = 0;
+  const keepArchived = (f) => {
+    if (!cache[f]) return;
+    next[f] = { ...cache[f], gone: true };
+    out.push(cache[f].s);
+    archived++;
+  };
   const todo = [];
   for (const f of files) {
     let st;
-    try { st = fs.statSync(f); } catch { continue; }
+    try { st = fs.statSync(f); } catch { keepArchived(f); continue; } // deleted mid-scan
     const key = `${st.size}:${st.mtimeMs}`;
-    if (cache[f]?.key === key) { next[f] = cache[f]; out.push(cache[f].s); }
+    if (sameTz && cache[f]?.key === key) { next[f] = cache[f]; out.push(cache[f].s); }
     else todo.push({ f, key });
   }
+  // Keep summaries of transcripts that are gone from disk, but only ones that
+  // belonged to this Claude config dir: another account's history must not leak in.
+  const live = new Set(files);
+  const prefix = root + path.sep;
+  for (const f of Object.keys(cache)) if (!live.has(f) && f.startsWith(prefix)) keepArchived(f);
+  // Entries from other config dirs stay in the file untouched.
+  for (const [f, e] of Object.entries(cache)) if (!f.startsWith(prefix)) next[f] = e;
+
   // Parse a few files at a time; IO-bound so modest concurrency helps.
   const CONC = 8;
   let i = 0;
@@ -201,11 +232,18 @@ export async function collect({ onProgress } = {}) {
         const s = await summarize(f);
         next[f] = { key, s };
         out.push(s);
-      } catch { /* unreadable file: skip */ }
+      } catch { keepArchived(f); }
       parsed++;
       onProgress?.(parsed, todo.length);
     }
   }));
-  fs.writeFileSync(cfile, JSON.stringify({ v: CACHE_VERSION, tz: new Date().getTimezoneOffset(), files: next }));
-  return { sessions: out, fileCount: files.length, parsed };
+  try {
+    fs.mkdirSync(cdir, { recursive: true });
+    const tmpFile = `${cfile}.${process.pid}.tmp`;
+    fs.writeFileSync(tmpFile, JSON.stringify({ v: CACHE_VERSION, tz: new Date().getTimezoneOffset(), files: next }));
+    fs.renameSync(tmpFile, cfile);
+  } catch (e) {
+    warn(`could not write ${cfile} (${e.message}); the report still works, but history won't be archived`);
+  }
+  return { sessions: out, fileCount: files.length, parsed, archived };
 }

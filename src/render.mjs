@@ -1,13 +1,13 @@
 // Self-contained HTML report. All charts are drawn client-side from embedded JSON.
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-export function render({ reports, mainKey, insight, lang, generatedAt }) {
+export function render({ reports, mainKey, insight, lang, generatedAt, cleanupDays = 30, excluded = 0 }) {
   // Raw prompts stay out of the file: the HTML is something people screenshot and share.
   const slim = Object.fromEntries(Object.entries(reports).map(([k, r]) => {
     const { prompts, sessions, ...rest } = r;
     return [k, rest];
   }));
-  const data = JSON.stringify({ reports: slim, mainKey, insight, lang, generatedAt }).replace(/</g, '\\u003c');
+  const data = JSON.stringify({ reports: slim, mainKey, insight, lang, generatedAt, cleanupDays, excluded }).replace(/</g, '\\u003c');
   return `<!doctype html>
 <html lang="${esc(lang)}">
 <head>
@@ -50,6 +50,8 @@ h1{font:400 34px/1.35 var(--serif);margin:42px 0 12px;letter-spacing:.01em}
 .note{font-size:12.5px;color:var(--faint);margin-top:8px}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:22px;margin:44px 0 10px}
 .kpi b{display:block;font:400 28px/1.2 var(--serif)}.kpi span{font-size:12.5px;color:var(--muted)}
+.kpi em{display:block;font-style:normal;font-size:11.5px;color:var(--faint);font-variant-numeric:tabular-nums}
+.st{font-size:11px;padding:1px 8px;border-radius:99px;border:1px solid var(--line);color:var(--muted)}.st.done{color:var(--good);border-color:currentColor}.st.partial{color:var(--warn);border-color:currentColor}
 section{margin-top:56px}
 h2{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:0 0 14px;padding-bottom:8px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:12px}
 h2 .seg{text-transform:none;letter-spacing:0}
@@ -79,6 +81,11 @@ pre{font:12px/1.55 var(--mono);background:var(--bg);border:1px solid var(--line)
 .bar .l span{position:relative}
 .bar .v{text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
 .empty{color:var(--faint);font-size:13px}
+.tbl{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:13.5px}
+th{text-align:left;white-space:nowrap;font-weight:500;color:var(--muted);font-size:12px;padding:6px 10px;border-bottom:1px solid var(--line)}
+td{padding:7px 10px;border-bottom:1px dashed var(--line);font-variant-numeric:tabular-nums;white-space:nowrap}
+td.pn{position:relative;min-width:160px}td.pn i{position:absolute;inset:4px auto 4px 0;background:var(--accent-soft);border-radius:4px}td.pn span{position:relative;padding-left:6px}
+td.tt{white-space:normal;color:var(--muted);font-size:12.5px;min-width:220px}
 .fr{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px}
 .fr div b{font:400 24px var(--serif);display:block}.fr div span{font-size:12.5px;color:var(--muted)}
 .rep{list-style:none;padding:0;margin:0}.rep li{display:flex;gap:12px;padding:7px 0;border-bottom:1px dashed var(--line);font-size:14px}
@@ -100,7 +107,7 @@ const T = ja ? {
   patterns:'目立った癖', next:'次にやるといいこと', usage:'使い方の内訳', tools:'ツール', skills:'Skills', agents:'サブエージェント', mcp:'MCP', cmds:'スラッシュコマンド', exts:'編集したファイル', models:'モデル',
   friction:'摩擦', fi:{interrupts:'中断',rejects:'ツール拒否',toolErrors:'ツールエラー',compacts:'コンパクション'}, per100:'/100指示', perCall:'% (ツール呼び出し比)',
   repeated:'何度も打っている指示', aiNote:(d)=>'文章は'+d+'のデータから生成。数値は期間切替に追従します。', none:'なし',
-  snippet:'スニペット', hrsUnit:'時間', foot:'データはこのマシンの ~/.claude/projects から読み取り、HTML に生のプロンプトは含めていません。',
+  snippet:'スニペット', projects:'プロジェクト別', pcol:{name:'プロジェクト',prompts:'指示',sessions:'セッション',hours:'時間',titles:'主なセッション'}, vsPrev:'前期間比', followUp:'前回の提案、その後', status:{done:'できた',partial:'一部',['not-yet']:'まだ',unclear:'不明'}, cache:'キャッシュヒット率', hrsUnit:'時間', foot:'データはこのマシンの ~/.claude/projects から読み取り、HTML に生のプロンプトは含めていません。', cleanup:(n)=>'Claude Code は '+n+' 日より古い履歴を削除する。それより前は、過去の実行時に ccretro が保存した要約だけ。', excl:(n)=>n+' 件のプロジェクトを除外。',
 } : {
   title:'Retrospective', sub:'Generated from your local Claude Code history', periods:{'7':'Last 7 days','30':'Last month','90':'Last 3 months','all':'All time'},
   wd:['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'],
@@ -110,7 +117,7 @@ const T = ja ? {
   patterns:'Patterns', next:'What to do next', usage:'How you used it', tools:'Tools', skills:'Skills', agents:'Subagents', mcp:'MCP', cmds:'Slash commands', exts:'Files edited', models:'Models',
   friction:'Friction', fi:{interrupts:'Interrupts',rejects:'Rejected tools',toolErrors:'Tool errors',compacts:'Compactions'}, per100:'/100 prompts', perCall:'% of tool calls',
   repeated:'Prompts you keep typing', aiNote:(d)=>'Narrative written from '+d+'. Numbers follow the period switch.', none:'none',
-  snippet:'Snippet', hrsUnit:'h', foot:'Read from ~/.claude/projects on this machine. Raw prompts are not embedded in this file.',
+  snippet:'Snippet', projects:'By project', pcol:{name:'Project',prompts:'Prompts',sessions:'Sessions',hours:'Hours',titles:'Top sessions'}, vsPrev:'vs prev', followUp:'Last time\'s suggestions', status:{done:'done',partial:'partial',['not-yet']:'not yet',unclear:'unclear'}, cache:'Cache hit rate', hrsUnit:'h', foot:'Read from ~/.claude/projects on this machine. Raw prompts are not embedded in this file.', cleanup:(n)=>'Claude Code deletes history older than '+n+' days; anything earlier comes from summaries ccretro archived on previous runs.', excl:(n)=>n+' project filter(s) applied.',
 };
 const ICON = {
   delegation:'<path d="M7 11V6a1.5 1.5 0 013 0v4M10 10V4.5a1.5 1.5 0 013 0V10M13 10V5.5a1.5 1.5 0 013 0V13a6 6 0 01-6 6h-.5A5.5 5.5 0 014 14.6L2.8 12a1.4 1.4 0 012.4-1.4L7 13"/>',
@@ -182,10 +189,18 @@ function draw() {
     Object.keys(DATA.reports).map((k) => '<button data-period="'+k+'" aria-pressed="'+(k===state.period)+'">'+pl(k)+'</button>').join('') + '</div></header>';
   h += '<h1>' + esc(ai.headline) + '</h1><p class="lead">' + esc(ai.summary) + '</p>';
   h += '<p class="note">' + T.aiNote(pl(DATA.mainKey)) + '</p>';
+  const c = r.compare;
+  const delta = (k) => {
+    if (!c || !c[k]) return '';
+    const { now, prev } = c[k];
+    if (!prev) return '<em>'+T.vsPrev+' —</em>';
+    const pct = Math.round((now - prev) / prev * 100);
+    return '<em>'+T.vsPrev+' '+(pct > 0 ? '+' : '')+pct+'%</em>';
+  };
   h += '<div class="kpis">' + [
-    [T.wd[t.peakWeekday], T.k.wd], [t.peakHour + (ja ? '時' : ':00'), T.k.hr], [t.sessions, T.k.ses], [t.prompts, T.k.pr],
-    [t.activeDays, T.k.days], [t.activeHours + T.hrsUnit, T.k.hrs], [t.projects, T.k.proj],
-  ].map(([b, s]) => '<div class="kpi"><b>'+esc(b)+'</b><span>'+s+'</span></div>').join('') + '</div>';
+    [T.wd[t.peakWeekday], T.k.wd], [t.peakHour + (ja ? '時' : ':00'), T.k.hr], [t.sessions, T.k.ses, 'sessions'], [t.prompts, T.k.pr, 'prompts'],
+    [t.activeDays, T.k.days, 'activeDays'], [t.activeHours + T.hrsUnit, T.k.hrs, 'activeHours'], [t.projects, T.k.proj, 'projects'],
+  ].map(([b, s, k]) => '<div class="kpi"><b>'+esc(b)+'</b><span>'+s+'</span>'+(k ? delta(k) : '')+'</div>').join('') + '</div>';
 
   h += '<section><h2>'+T.activity+'<span class="seg">' + ['prompts','hours'].map((m) => '<button data-metric="'+m+'" aria-pressed="'+(state.metric===m)+'">'+T[m]+'</button>').join('') + '</span></h2><div class="chart">' + line(r.series, state.metric) + '</div></section>';
   h += '<section><h2>'+T.heat+'</h2>' + heat(r.heat) + '</section>';
@@ -200,12 +215,22 @@ function draw() {
     return '<div class="card"><div class="k">'+svgIcon(k)+T.fl[k]+'</div><h3>'+esc(f.title)+'</h3><p>'+esc(f.body)+'</p>' + (f.evidence ? '<div class="ev">'+esc(f.evidence)+'</div>' : '') + (f.prompt ? '<div class="row">'+copyBtn(f.prompt)+'</div>' : '') + '</div>';
   }).join('') + '</div></section>';
 
+  if ((ai.followUp || []).length) {
+    h += '<section><h2>'+T.followUp+'</h2><ul class="rep">' + ai.followUp.map((x) => '<li><span class="st '+esc(x.status)+'">'+esc(T.status[x.status] || x.status)+'</span><span><b style="color:var(--ink);font-weight:500">'+esc(x.title)+'</b><br><span style="color:var(--muted);font-size:13px">'+esc(x.evidence)+'</span></span></li>').join('') + '</ul></section>';
+  }
+
   if ((ai.nextActions || []).length) {
     h += '<section><h2>'+T.next+'</h2><div class="cards">' + ai.nextActions.map((a, i) => '<div class="card"><div class="k"><span class="tag">'+esc(a.kind)+'</span>'+(i+1)+'</div><h3>'+esc(a.title)+'</h3><p>'+esc(a.why)+'</p><div class="ev">'+esc(a.how)+'</div>' + (a.snippet ? '<pre>'+esc(a.snippet)+'</pre><div class="row">'+copyBtn(a.snippet)+'</div>' : '') + '</div>').join('') + '</div></section>';
   }
 
   if ((ai.patterns || []).length) {
     h += '<section><h2>'+T.patterns+'</h2><div class="cards">' + ai.patterns.map((p) => '<div class="card"><h3>'+esc(p.title)+'</h3><p>'+esc(p.detail)+'</p></div>').join('') + '</div></section>';
+  }
+
+  if (r.projects.length) {
+    const maxP = r.projects[0].prompts || 1;
+    h += '<section><h2>'+T.projects+'</h2><div class="tbl"><table><thead><tr><th>'+T.pcol.name+'</th><th>'+T.pcol.prompts+'</th><th>'+T.pcol.sessions+'</th><th>'+T.pcol.hours+'</th><th>'+T.pcol.titles+'</th></tr></thead><tbody>' +
+      r.projects.slice(0, 12).map((p) => '<tr><td class="pn"><i style="width:'+(p.prompts/maxP*100)+'%"></i><span>'+esc(p.name)+'</span></td><td>'+p.prompts+'</td><td>'+p.sessions+'</td><td>'+p.hours+'</td><td class="tt">'+esc((p.titles||[]).slice(0,3).join(' · '))+'</td></tr>').join('') + '</tbody></table></div></section>';
   }
 
   if (r.repeated.length) {
@@ -216,13 +241,13 @@ function draw() {
   h += '<section><h2>'+T.friction+'</h2><div class="fr">' + ['interrupts','rejects','toolErrors','compacts'].map((k) => {
     const per = { interrupts: f.interruptsPer100+T.per100, rejects: f.rejectsPer100+T.per100, toolErrors: f.errorRate+T.perCall }[k];
     return '<div><b>'+f[k]+'</b><span>'+T.fi[k]+(per !== undefined ? ' · '+per : '')+'</span></div>';
-  }).join('') + '</div></section>';
+  }).join('') + '<div><b>'+Math.round(t.cacheHitRate*100)+'%</b><span>'+T.cache+'</span></div></div></section>';
 
   const u = r.usage;
   h += '<section><h2>'+T.usage+'</h2><div class="bars">' + bars(T.tools, u.tools.slice(0, 10)) + bars(T.skills, u.skills) + bars(T.agents, u.agents) + bars(T.mcp, u.mcp) + bars(T.cmds, u.cmds) + bars(T.exts, u.exts) + bars(T.models, u.models) + '</div></section>';
 
   const meta = ai._meta || {};
-  h += '<footer>ccretro · '+new Date(DATA.generatedAt).toLocaleString()+' · '+esc(meta.model)+(meta.costUsd ? ' · $'+meta.costUsd.toFixed(3) : '')+'<br>'+T.foot+'</footer>';
+  h += '<footer>ccretro · '+new Date(DATA.generatedAt).toLocaleString()+' · '+esc(meta.model)+(meta.costUsd ? ' · $'+meta.costUsd.toFixed(3) : '')+'<br>'+T.foot+' '+T.cleanup(DATA.cleanupDays)+(DATA.excluded ? ' '+T.excl(DATA.excluded) : '')+'</footer>';
   app.innerHTML = h;
 }
 
