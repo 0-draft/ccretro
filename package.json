@@ -1,6 +1,6 @@
 {
   "name": "ccretro",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "A monthly-review style retrospective of your Claude Code usage, rendered as a local web page, plus a skill that acts on it.",
   "type": "module",
   "bin": {

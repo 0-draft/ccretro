@@ -1,6 +1,6 @@
 {
   "name": "ccretro",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Retrospective of your Claude Code usage as a local web page, plus a skill that turns its suggestions into skills, CLAUDE.md lines and hooks.",
   "repository": "https://github.com/0-draft/ccretro",
   "license": "MIT",
