@@ -24,7 +24,8 @@ Claude Code ships `/insights` and `/usage`, and they are good. Use them. ccretro
 
 - Headline and a short summary of the period
 - Most active weekday, peak hour, sessions, prompts, active days, wall-clock hours (parallel sessions merged), projects, each with change vs the previous period
-- Daily prompts or active hours, and a weekday × hour heatmap
+- API-equivalent cost by day and by model (what the tokens would cost at API list prices; a subscription doesn't bill this)
+- Daily prompts, active hours or cost, and a weekday × hour heatmap
 - What you worked on, by theme and by project
 - AI fluency in four cards, each with evidence and a copyable prompt
 - What happened to last time's suggestions
@@ -60,11 +61,16 @@ npx github:0-draft/ccretro --dry-run    # print exactly what would be sent to cl
 | `-o, --out <file>` | `~/.cache/ccretro/report-<date>.html` | output path; a `.json` with the same name sits next to it |
 | `--no-open` | off | don't open the browser |
 
-Projects to always exclude can go in `~/.config/ccretro/config.json`:
+Projects to always exclude, and price overrides, can go in `~/.config/ccretro/config.json`:
 
 ```json
-{ "excludeProjects": ["private-notes", "work/acme"] }
+{
+  "excludeProjects": ["private-notes", "work/acme"],
+  "pricing": { "claude-opus-5-5": { "in": 4, "out": 20, "read": 0.2 } }
+}
 ```
+
+Built-in prices are Anthropic's API list prices as of 2026-10-06 (USD per million tokens; cache writes at 1.25x input for the 5-minute TTL and 2x for 1 hour, fast mode at 2x, Claude Haiku 5.5's >100K-prompt tier). Models without a known price are counted as unpriced tokens, not guessed.
 
 ## The `/ccretro` skill
 
@@ -92,6 +98,7 @@ Run it monthly. `/schedule` can generate the report on a timer; applying changes
 - **Previous period**: the same length immediately before; omitted when it reaches back past the oldest data.
 - **Tool error rate**: tool results flagged `is_error` over all tool calls.
 - **Cache hit rate**: cache-read input tokens over all input tokens, main and subagent sessions.
+- **Cost**: per assistant message, by model and pricing tier, deduplicated by message id; subagent sessions included.
 
 ## Development
 

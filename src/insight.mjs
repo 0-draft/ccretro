@@ -62,6 +62,7 @@ export function digest(r, inv, lang, previous) {
     `TOTALS: sessions=${r.totals.sessions} prompts=${r.totals.prompts} activeDays=${r.totals.activeDays} bestStreak=${r.totals.bestStreak} activeHours(wall-clock, parallel sessions merged)=${r.totals.activeHours} claudeTurnHours(summed across parallel sessions)=${r.totals.claudeHours} toolCalls=${r.totals.toolCalls} projects=${r.totals.projects}`,
     `RHYTHM: peakWeekday=${wd[r.totals.peakWeekday]} peakHour=${r.totals.peakHour}:00 lateNight(0-5h)share=${(r.totals.lateNightShare * 100).toFixed(0)}%`,
     ...(r.compare ? [`VS PREVIOUS ${r.period.days} DAYS: ${Object.entries(r.compare).map(([k, v]) => `${k} ${v.prev}→${v.now}`).join(', ')}`] : []),
+    `COST (API list-price equivalent, not what a subscription pays): $${r.totals.costUsd} — ${r.usage.costByModel.map(([k, v]) => `${k}=$${v}`).join(', ')}`,
     `CACHE: hitRate=${(r.totals.cacheHitRate * 100).toFixed(0)}% of input tokens served from prompt cache`,
     `PROMPT STYLE: medianChars=${r.style.medianChars} short(<=15 chars)=${(r.style.shareShort * 100).toFixed(0)}% long(>=400)=${(r.style.shareLong * 100).toFixed(0)}% withImages=${r.style.withImages}`,
     `DELEGATION: subagentCalls=${r.usage.delegation.agentCalls} skillCalls=${r.usage.delegation.skillCalls} toolCallsPerPrompt=${r.usage.delegation.toolCallsPerPrompt}`,

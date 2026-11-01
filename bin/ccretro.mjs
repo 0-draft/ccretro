@@ -25,6 +25,7 @@ Usage: ccretro [options]
       --dry-run      print the digest that would be sent to claude and exit
   -o, --out <file>   output HTML path (default: ~/.cache/ccretro/report-<date>.html)
       --no-open      don't open the browser
+  (config.json may also set "pricing": {"model-id": {"in": 4, "out": 20, "read": 0.2}} in USD/MTok)
       --redact       share mode: hide project names, session titles and repeated
                      prompts in the HTML, and tell claude not to name anything
   -x, --exclude-project <name>
@@ -87,6 +88,12 @@ const ownerCwd = new Map(sessions.filter((s) => !s.isSub).map((s) => [s.sessionI
 const kept = excludes.length ? sessions.filter((s) => !isExcluded(ownerCwd.get(s.sessionId) || s.cwd)) : sessions;
 if (excludes.length) log(`excluded ${sessions.length - kept.length} transcripts matching: ${excludes.join(', ')}\n`);
 
+const pricing = config.pricing ?? {};
+if (typeof pricing !== 'object' || Array.isArray(pricing) || Object.values(pricing).some((p) => typeof p?.in !== 'number' || typeof p?.out !== 'number')) {
+  console.error(`${configPath}: "pricing" must map model ids to {"in": n, "out": n, "read"?: n} (USD per million tokens)`);
+  process.exit(2);
+}
+
 let cleanupDays = 30;
 try { cleanupDays = JSON.parse(fs.readFileSync(path.join(claudeHome(), 'settings.json'), 'utf8')).cleanupPeriodDays ?? 30; } catch { /* default */ }
 if (days === 0 || days > cleanupDays) {
@@ -94,13 +101,13 @@ if (days === 0 || days > cleanupDays) {
 }
 
 const reports = {};
-for (const k of new Set(['7', '30', '90', 'all', mainKey])) reports[k] = analyze(kept, { days: k === 'all' ? 0 : Number(k) });
+for (const k of new Set(['7', '30', '90', 'all', mainKey])) reports[k] = analyze(kept, { days: k === 'all' ? 0 : Number(k), pricing });
 const earliest = Math.min(...kept.filter((s) => s.start).map((s) => s.start));
 for (const [k, r] of Object.entries(reports)) {
   if (k === 'all') continue;
   // Skip the comparison when the previous window predates the oldest data we have.
   const prevFrom = r.period.from - Number(k) * 86400e3;
-  r.compare = earliest <= prevFrom + 86400e3 ? compare(r, analyze(kept, { days: Number(k), until: r.period.from })) : null;
+  r.compare = earliest <= prevFrom + 86400e3 ? compare(r, analyze(kept, { days: Number(k), until: r.period.from, pricing })) : null;
 }
 const ordered = Object.fromEntries(['7', '30', '90', 'all', mainKey].filter((k, i, a) => a.indexOf(k) === i)
   .sort((a, b) => (a === 'all' ? 1e9 : +a) - (b === 'all' ? 1e9 : +b)).map((k) => [k, reports[k]]));

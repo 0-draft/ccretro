@@ -101,8 +101,8 @@ const ja = DATA.lang === 'ja';
 const T = ja ? {
   title:'振り返り', sub:'Claude Code のローカル履歴から生成', periods:{'7':'過去7日','30':'過去1ヶ月','90':'過去3ヶ月','all':'全期間'},
   wd:['日曜日','月曜日','火曜日','水曜日','木曜日','金曜日','土曜日'],
-  k:{wd:'最もアクティブな曜日',hr:'ピーク時間帯',ses:'セッション',pr:'指示した回数',days:'アクティブ日数',hrs:'利用時間',streak:'最長連続日数',proj:'プロジェクト'},
-  activity:'Claude Code との利用時間', prompts:'指示', hours:'利用時間', heat:'曜日 × 時間', themes:'取り組んだこと', fluency:'スキルを広げる',
+  k:{cost:'API 換算コスト (推定)',wd:'最もアクティブな曜日',hr:'ピーク時間帯',ses:'セッション',pr:'指示した回数',days:'アクティブ日数',hrs:'利用時間',streak:'最長連続日数',proj:'プロジェクト'},
+  activity:'Claude Code との利用時間', prompts:'指示', hours:'利用時間', cost:'コスト', costModels:'モデル別コスト (API 換算)', costNote:'API 定価での換算。サブスクリプションの請求額ではない。', heat:'曜日 × 時間', themes:'取り組んだこと', fluency:'スキルを広げる',
   fl:{delegation:'委任',description:'説明',discernment:'識別力',diligence:'勤勉さ'}, copy:'プロンプトをコピー', copied:'コピーしました',
   patterns:'目立った癖', next:'次にやるといいこと', usage:'使い方の内訳', tools:'ツール', skills:'Skills', agents:'サブエージェント', mcp:'MCP', cmds:'スラッシュコマンド', exts:'編集したファイル', models:'モデル',
   friction:'摩擦', fi:{interrupts:'中断',rejects:'ツール拒否',toolErrors:'ツールエラー',compacts:'コンパクション'}, per100:'/100指示', perCall:'% (ツール呼び出し比)',
@@ -111,8 +111,8 @@ const T = ja ? {
 } : {
   title:'Retrospective', sub:'Generated from your local Claude Code history', periods:{'7':'Last 7 days','30':'Last month','90':'Last 3 months','all':'All time'},
   wd:['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'],
-  k:{wd:'Most active day',hr:'Peak hour',ses:'Sessions',pr:'Prompts',days:'Active days',hrs:'Active hours',streak:'Best streak',proj:'Projects'},
-  activity:'Activity', prompts:'Prompts', hours:'Hours', heat:'Weekday × hour', themes:'What you worked on', fluency:'Growing your skills',
+  k:{cost:'API-equivalent cost (est.)',wd:'Most active day',hr:'Peak hour',ses:'Sessions',pr:'Prompts',days:'Active days',hrs:'Active hours',streak:'Best streak',proj:'Projects'},
+  activity:'Activity', prompts:'Prompts', hours:'Hours', cost:'Cost', costModels:'Cost by model (API equivalent)', costNote:'At API list prices; not what a subscription bills.', heat:'Weekday × hour', themes:'What you worked on', fluency:'Growing your skills',
   fl:{delegation:'Delegation',description:'Description',discernment:'Discernment',diligence:'Diligence'}, copy:'Copy prompt', copied:'Copied',
   patterns:'Patterns', next:'What to do next', usage:'How you used it', tools:'Tools', skills:'Skills', agents:'Subagents', mcp:'MCP', cmds:'Slash commands', exts:'Files edited', models:'Models',
   friction:'Friction', fi:{interrupts:'Interrupts',rejects:'Rejected tools',toolErrors:'Tool errors',compacts:'Compactions'}, per100:'/100 prompts', perCall:'% of tool calls',
@@ -128,6 +128,7 @@ const ICON = {
 const svgIcon = (k) => '<svg width="16" height="16" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+ICON[k]+'</svg>';
 const PALETTE = ['#c8622f','#6c8ebf','#7a9a5b','#b58bb8','#c9a227','#5aa5a0','#a3a097'];
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtUsd = (n) => n >= 1000 ? Math.round(n).toLocaleString('en-US') : n.toFixed(n >= 100 ? 0 : 2);
 const fmt = (n) => n >= 1e9 ? (n/1e9).toFixed(1)+'B' : n >= 1e6 ? (n/1e6).toFixed(1)+'M' : n >= 1e4 ? (n/1e3).toFixed(0)+'k' : String(n);
 const pl = (k) => T.periods[k] || (ja ? '過去' + k + '日' : 'Last ' + k + ' days');
 const app = document.getElementById('app');
@@ -136,7 +137,8 @@ try { const s = JSON.parse(localStorage.getItem('ccretro') || '{}'); if (s.metri
 
 function line(series, metric) {
   const W = 940, H = 220, P = { l: 34, r: 8, t: 12, b: 26 };
-  const ys = series.map((d) => metric === 'hours' ? d.activeMs / 3600e3 : d.prompts);
+  const val = (d) => metric === 'hours' ? d.activeMs / 3600e3 : metric === 'cost' ? (d.cost || 0) : d.prompts;
+  const ys = series.map(val);
   const max = Math.max(1, ...ys);
   const nice = (() => { const m = Math.pow(10, Math.floor(Math.log10(max))); return Math.ceil(max / m) * m; })();
   const x = (i) => P.l + (series.length <= 1 ? 0 : i * (W - P.l - P.r) / (series.length - 1));
@@ -148,11 +150,11 @@ function line(series, metric) {
     const [x0, y0] = pts[i - 1], cx = (x0 + p[0]) / 2;
     d += ' C' + cx + ',' + y0 + ' ' + cx + ',' + p[1] + ' ' + p[0] + ',' + p[1];
   });
-  const grid = [0, nice / 2, nice].map((v) => '<line x1="'+P.l+'" x2="'+(W-P.r)+'" y1="'+y(v)+'" y2="'+y(v)+'" stroke="var(--line)"/><text x="'+(P.l-8)+'" y="'+(y(v)+4)+'" text-anchor="end">'+(metric==='hours'?(+v.toFixed(1)):Math.round(v))+'</text>').join('');
+  const grid = [0, nice / 2, nice].map((v) => '<line x1="'+P.l+'" x2="'+(W-P.r)+'" y1="'+y(v)+'" y2="'+y(v)+'" stroke="var(--line)"/><text x="'+(P.l-8)+'" y="'+(y(v)+4)+'" text-anchor="end">'+(metric==='hours'?(+v.toFixed(1)):metric==='cost'?'$'+Math.round(v):Math.round(v))+'</text>').join('');
   const ticks = [0, .33, .66, 1].map((f) => Math.round(f * (series.length - 1))).filter((v, i, a) => a.indexOf(v) === i)
     .map((i) => { const s = series[i]; if (!s) return ''; const [, m, dd] = s.day.split('-'); return '<text x="'+x(i)+'" y="'+(H-6)+'" text-anchor="'+(i===0?'start':i===series.length-1?'end':'middle')+'">'+(ja? (+m)+'月'+(+dd)+'日' : m+'/'+dd)+'</text>'; }).join('');
   const area = d ? d + ' L' + x(series.length - 1) + ',' + y(0) + ' L' + x(0) + ',' + y(0) + ' Z' : '';
-  const hits = series.map((s, i) => '<rect x="'+(x(i)-(W/series.length)/2)+'" y="0" width="'+(W/series.length)+'" height="'+H+'" fill="transparent"><title>'+s.day+' — '+(metric==='hours'?(s.activeMs/3600e3).toFixed(1)+T.hrsUnit:s.prompts+' '+T.prompts)+'</title></rect>').join('');
+  const hits = series.map((s, i) => '<rect x="'+(x(i)-(W/series.length)/2)+'" y="0" width="'+(W/series.length)+'" height="'+H+'" fill="transparent"><title>'+s.day+' — '+(metric==='hours'?(s.activeMs/3600e3).toFixed(1)+T.hrsUnit:metric==='cost'?'$'+(s.cost||0).toFixed(2):s.prompts+' '+T.prompts)+'</title></rect>').join('');
   return '<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+T.activity+'">'+grid+'<path d="'+area+'" fill="var(--accent)" opacity=".08"/><path d="'+d+'" fill="none" stroke="var(--accent)" stroke-width="2"/>'+ticks+hits+'</svg>';
 }
 
@@ -171,6 +173,12 @@ function bars(title, rows) {
   if (!rows || !rows.length) return '<div><h4>'+title+'</h4><div class="empty">'+T.none+'</div></div>';
   const max = rows[0][1];
   return '<div><h4>'+title+'</h4>' + rows.map(([k, v]) => '<div class="bar"><div class="l" title="'+esc(k)+'"><i style="width:'+(v/max*100)+'%"></i><span>'+esc(k.replace(/^mcp__/,''))+'</span></div><div class="v">'+fmt(v)+'</div></div>').join('') + '</div>';
+}
+
+function barsUsd(title, rows) {
+  if (!rows || !rows.length) return '';
+  const max = rows[0][1] || 1;
+  return '<div><h4>'+title+'</h4>' + rows.map(([k, v]) => '<div class="bar"><div class="l" title="'+esc(k)+'"><i style="width:'+(v/max*100)+'%"></i><span>'+esc(k)+'</span></div><div class="v">$'+fmtUsd(v)+'</div></div>').join('') + '<div class="empty" style="margin-top:6px">'+T.costNote+'</div></div>';
 }
 
 function copyBtn(text, label) {
@@ -199,10 +207,10 @@ function draw() {
   };
   h += '<div class="kpis">' + [
     [T.wd[t.peakWeekday], T.k.wd], [t.peakHour + (ja ? '時' : ':00'), T.k.hr], [t.sessions, T.k.ses, 'sessions'], [t.prompts, T.k.pr, 'prompts'],
-    [t.activeDays, T.k.days, 'activeDays'], [t.activeHours + T.hrsUnit, T.k.hrs, 'activeHours'], [t.projects, T.k.proj, 'projects'],
+    [t.activeDays, T.k.days, 'activeDays'], [t.activeHours + T.hrsUnit, T.k.hrs, 'activeHours'], [t.projects, T.k.proj, 'projects'], ['$'+fmtUsd(t.costUsd), T.k.cost, 'costUsd'],
   ].map(([b, s, k]) => '<div class="kpi"><b>'+esc(b)+'</b><span>'+s+'</span>'+(k ? delta(k) : '')+'</div>').join('') + '</div>';
 
-  h += '<section><h2>'+T.activity+'<span class="seg">' + ['prompts','hours'].map((m) => '<button data-metric="'+m+'" aria-pressed="'+(state.metric===m)+'">'+T[m]+'</button>').join('') + '</span></h2><div class="chart">' + line(r.series, state.metric) + '</div></section>';
+  h += '<section><h2>'+T.activity+'<span class="seg">' + ['prompts','hours','cost'].map((m) => '<button data-metric="'+m+'" aria-pressed="'+(state.metric===m)+'">'+T[m]+'</button>').join('') + '</span></h2><div class="chart">' + line(r.series, state.metric) + '</div></section>';
   h += '<section><h2>'+T.heat+'</h2>' + heat(r.heat) + '</section>';
 
   if (themes.length) {
@@ -244,7 +252,7 @@ function draw() {
   }).join('') + '<div><b>'+Math.round(t.cacheHitRate*100)+'%</b><span>'+T.cache+'</span></div></div></section>';
 
   const u = r.usage;
-  h += '<section><h2>'+T.usage+'</h2><div class="bars">' + bars(T.tools, u.tools.slice(0, 10)) + bars(T.skills, u.skills) + bars(T.agents, u.agents) + bars(T.mcp, u.mcp) + bars(T.cmds, u.cmds) + bars(T.exts, u.exts) + bars(T.models, u.models) + '</div></section>';
+  h += '<section><h2>'+T.usage+'</h2><div class="bars">' + bars(T.tools, u.tools.slice(0, 10)) + bars(T.skills, u.skills) + bars(T.agents, u.agents) + bars(T.mcp, u.mcp) + bars(T.cmds, u.cmds) + bars(T.exts, u.exts) + bars(T.models, u.models) + barsUsd(T.costModels, u.costByModel) + '</div></section>';
 
   const meta = ai._meta || {};
   h += '<footer>ccretro · '+new Date(DATA.generatedAt).toLocaleString()+' · '+esc(meta.model)+(meta.costUsd ? ' · $'+meta.costUsd.toFixed(3) : '')+'<br>'+T.foot+' '+T.cleanup(DATA.cleanupDays)+(DATA.excluded ? ' '+T.excl(DATA.excluded) : '')+'</footer>';

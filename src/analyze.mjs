@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { dayKey, claudeHome } from './collect.mjs';
+import { costOf, canonical } from './pricing.mjs';
 
 const add = (dst, src) => { for (const [k, v] of Object.entries(src || {})) dst[k] = (dst[k] || 0) + v; };
 const top = (o, n = 10) => Object.entries(o).sort((a, b) => b[1] - a[1]).slice(0, n);
@@ -36,7 +37,7 @@ function union(spans) {
 const spanMs = (xs) => xs.reduce((a, [x, y]) => a + (y - x), 0);
 
 // `until` lets the CLI compute the previous period for comparison.
-export function analyze(sessions, { days, until }) {
+export function analyze(sessions, { days, until, pricing = {} }) {
   const now = until ?? Date.now();
   const toKey = dayKey(now);
   const from = days ? now - days * 86400e3 : 0;
@@ -44,6 +45,7 @@ export function analyze(sessions, { days, until }) {
 
   const daily = {};
   const agg = { tools: {}, skills: {}, agents: {}, models: {}, exts: {}, cmds: {} };
+  const byModel = {};
   const tot = { prompts: 0, interrupts: 0, rejects: 0, toolErrors: 0, compacts: 0, turnMs: 0, tok: { in: 0, out: 0, cr: 0, cc: 0 } };
   const heat = Array.from({ length: 7 }, () => Array(24).fill(0));
   const projects = {};
@@ -69,6 +71,13 @@ export function analyze(sessions, { days, until }) {
       dd.tokens += d.tok.in + d.tok.out + d.tok.cr + d.tok.cc;
       for (const f of ['interrupts', 'rejects', 'toolErrors', 'compacts', 'turnMs']) tot[f] += d[f];
       for (const f of ['in', 'out', 'cr', 'cc']) tot.tok[f] += d.tok[f];
+      let dayCost = 0;
+      for (const [m, t] of Object.entries(d.byModel || {})) {
+        const b = (byModel[canonical(m)] ||= { in: 0, out: 0, cr: 0, cc5: 0, cc1h: 0 });
+        for (const f of Object.keys(b)) b[f] += t[f];
+        dayCost += costOf(m, t, pricing) || 0;
+      }
+      dd.cost = (dd.cost || 0) + dayCost;
       for (const f of Object.keys(agg)) add(agg[f], d[f]);
     }
     if (!touched) continue;
@@ -163,6 +172,16 @@ export function analyze(sessions, { days, until }) {
   const toolCalls = sum(agg.tools);
   const per100 = (n) => (tot.prompts ? Math.round((n / tot.prompts) * 1000) / 10 : 0);
 
+  let costTotal = 0;
+  let unpricedTokens = 0;
+  const costByModel = [];
+  for (const [m, t] of Object.entries(byModel)) {
+    const c = costOf(m, t, pricing);
+    if (c === null) unpricedTokens += t.in + t.out + t.cr + t.cc5 + t.cc1h;
+    else { costTotal += c; costByModel.push([m, Math.round(c * 100) / 100]); }
+  }
+  costByModel.sort((a, b) => b[1] - a[1]);
+
   const projList = Object.values(projects).filter((p) => p.prompts > 0)
     .sort((a, b) => b.prompts - a.prompts);
 
@@ -171,6 +190,8 @@ export function analyze(sessions, { days, until }) {
     totals: {
       sessions: sessionList.length, prompts: tot.prompts, activeDays, bestStreak: best,
       activeHours: Math.round((spanMs(active) / 3600e3) * 10) / 10,
+      costUsd: Math.round(costTotal * 100) / 100,
+      unpricedTokens,
       cacheHitRate: (tot.tok.in + tot.tok.cr + tot.tok.cc) ? tot.tok.cr / (tot.tok.in + tot.tok.cr + tot.tok.cc) : 0,
       claudeHours: Math.round((tot.turnMs / 3600e3) * 10) / 10,
       tokens: tot.tok, toolCalls, peakWeekday: peakWd, peakHour: peakHr,
@@ -180,6 +201,7 @@ export function analyze(sessions, { days, until }) {
     series, heat,
     projects: projList.slice(0, 20).map((p) => ({ ...p, hours: Math.round((p.activeMs / 3600e3) * 10) / 10 })),
     usage: {
+      costByModel,
       tools: top(agg.tools, 15), skills: top(agg.skills, 15), agents: top(agg.agents, 10),
       mcp: top(mcp, 10), models: top(agg.models, 6), exts: top(agg.exts, 10), cmds: top(agg.cmds, 12),
       permissionModes: top(perm, 6),
@@ -227,7 +249,7 @@ export function inventory(report) {
 export function compare(cur, prev) {
   const pick = (r) => ({
     prompts: r.totals.prompts, sessions: r.totals.sessions, activeHours: r.totals.activeHours,
-    activeDays: r.totals.activeDays, projects: r.totals.projects,
+    activeDays: r.totals.activeDays, projects: r.totals.projects, costUsd: r.totals.costUsd,
     interruptsPer100: r.friction.interruptsPer100, errorRate: r.friction.errorRate,
     agentCalls: r.usage.delegation.agentCalls, skillCalls: r.usage.delegation.skillCalls,
   });

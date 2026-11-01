@@ -5,7 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import readline from 'node:readline';
 
-const CACHE_VERSION = 4;
+const CACHE_VERSION = 5;
 const IDLE_MS = 5 * 60e3; // gaps longer than this end an activity span
 const PROMPT_MAX = 400;
 
@@ -68,6 +68,7 @@ function newDay() {
   return {
     prompts: 0, interrupts: 0, rejects: 0, toolErrors: 0, compacts: 0, turnMs: 0,
     tok: { in: 0, out: 0, cr: 0, cc: 0 },
+    byModel: {}, // model[@tier] → { in, out, cr, cc5, cc1h } for cost estimates
     tools: {}, skills: {}, agents: {}, models: {}, exts: {}, cmds: {},
   };
 }
@@ -119,7 +120,22 @@ async function summarize(file) {
         dd.tok.out += u.output_tokens || 0;
         dd.tok.cr += u.cache_read_input_tokens || 0;
         dd.tok.cc += u.cache_creation_input_tokens || 0;
-        if (m.model && m.model !== '<synthetic>') inc(dd.models, m.model);
+        if (m.model && m.model !== '<synthetic>') {
+          inc(dd.models, m.model);
+          const cc = u.cache_creation_input_tokens || 0;
+          const cc1h = u.cache_creation?.ephemeral_1h_input_tokens || 0;
+          const prompt = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + cc;
+          // Pricing tiers that change the rate: fast mode, and Haiku 5.5 above 100K.
+          let key = m.model;
+          if (u.speed === 'fast') key += '@fast';
+          else if (/haiku-5-5/.test(m.model) && prompt > 100_000) key += '@>100k';
+          const bm = (dd.byModel[key] ||= { in: 0, out: 0, cr: 0, cc5: 0, cc1h: 0 });
+          bm.in += u.input_tokens || 0;
+          bm.out += u.output_tokens || 0;
+          bm.cr += u.cache_read_input_tokens || 0;
+          bm.cc1h += cc1h;
+          bm.cc5 += cc - cc1h;
+        }
       }
       for (const b of Array.isArray(m.content) ? m.content : []) {
         if (b?.type !== 'tool_use') continue;

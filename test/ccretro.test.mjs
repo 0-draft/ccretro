@@ -257,3 +257,29 @@ test('exclude matches forward-slash names regardless of OS separators', () => {
   assert.doesNotMatch(d, /nested work prompt/);
   fs.rmSync(path.join(process.env.CLAUDE_CONFIG_DIR, 'projects', '-w'), { recursive: true });
 });
+
+test('pricing: canonical ids, cache tiers, fast mode, unknown models', async () => {
+  const { costOf, canonical } = await import('../src/pricing.mjs');
+  assert.equal(canonical('claude-haiku-4-5-20251001'), 'claude-haiku-4-5');
+  assert.equal(canonical('us.anthropic.claude-opus-5-5'), 'claude-opus-5-5');
+  const M = 1e6;
+  // 1M each of input, output, cache read, 5m write, 1h write on Opus 5.5 ($4/$20, read $0.20)
+  assert.equal(costOf('claude-opus-5-5', { in: M, out: M, cr: M, cc5: M, cc1h: M }), 4 + 20 + 0.2 + 5 + 8);
+  assert.equal(costOf('claude-opus-5-5@fast', { in: M, out: 0, cr: 0, cc5: 0, cc1h: 0 }), 8);
+  assert.equal(costOf('claude-unknown-9', { in: M, out: 0, cr: 0, cc5: 0, cc1h: 0 }), null);
+  assert.equal(costOf('claude-unknown-9', { in: M, out: 0, cr: 0, cc5: 0, cc1h: 0 }, { 'claude-unknown-9': { in: 1, out: 2 } }), 1);
+});
+
+test('cost estimate flows from transcripts to totals, splitting cache TTLs', async () => {
+  writeSession('-p', 's11', path.join(home, 'priced'), [
+    user(base, 'priced prompt', 'u11'),
+    { type: 'assistant', timestamp: iso(base + 1000), message: { id: 'mp', model: 'claude-opus-5-5', content: [],
+      usage: { input_tokens: 1e6, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 2e6, cache_creation: { ephemeral_1h_input_tokens: 1e6 } } } },
+  ]);
+  const { sessions: s2 } = await collect({ warn() {} });
+  const r = analyze(s2, { days: 7 });
+  // $4 input + 1M 5m write ($5) + 1M 1h write ($8)
+  assert.equal(r.usage.costByModel.find(([m]) => m === 'claude-opus-5-5')?.[1], 17);
+  assert.ok(r.totals.unpricedTokens > 0, 'claude-test fixture model has no price');
+  fs.rmSync(path.join(process.env.CLAUDE_CONFIG_DIR, 'projects', '-p'), { recursive: true });
+});
