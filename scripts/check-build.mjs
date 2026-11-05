@@ -39,6 +39,15 @@ for (const dir of fs.readdirSync('skills')) {
 }
 ok('plugin manifests and skills');
 
+// npm 12 refuses git specs unless --allow-git is set, so every documented
+// `npx github:` invocation has to carry it.
+for (const f of ['README.md', ...fs.readdirSync('skills').map((d) => path.join('skills', d, 'SKILL.md'))]) {
+  for (const m of fs.readFileSync(f, 'utf8').matchAll(/npx [^\n`]*github:0-draft\/ccretro/g)) {
+    if (!m[0].includes('--allow-git=root')) fail(`${f}: "${m[0]}" needs --allow-git=root for npm 12`);
+  }
+}
+ok('npx instructions work on npm 12');
+
 // 4. CLI starts, and fails cleanly with no data
 const help = spawnSync(process.execPath, ['bin/ccretro.mjs', '--help'], { encoding: 'utf8' });
 if (help.status !== 0 || !help.stdout.includes('Usage: ccretro')) fail('ccretro --help');

@@ -3,8 +3,10 @@
 A monthly-review style retrospective of your Claude Code usage, rendered as a local web page, plus a `/ccretro` skill that turns its suggestions into actual skills, CLAUDE.md lines and hooks.
 
 ```bash
-npx github:0-draft/ccretro
+npx --allow-git=root github:0-draft/ccretro
 ```
+
+`--allow-git=root` is needed on npm 12 (Node 26), which no longer fetches packages from git by default; older npm accepts it too.
 
 ## Why not just `/insights`?
 
@@ -41,12 +43,12 @@ The period switch (7 days / 1 month / 3 months / all time) recomputes every numb
 Requires Node.js 20+. The narrative uses your logged-in `claude` CLI; without it you get the numbers and rule-based suggestions.
 
 ```bash
-npx github:0-draft/ccretro              # last 30 days, opens the browser
-npx github:0-draft/ccretro -d 7         # last week
-npx github:0-draft/ccretro -d 0         # everything on disk and in the archive
-npx github:0-draft/ccretro --redact     # share mode
-npx github:0-draft/ccretro -x work/acme # leave a project out completely
-npx github:0-draft/ccretro --dry-run    # print exactly what would be sent to claude
+npx --allow-git=root github:0-draft/ccretro              # last 30 days, opens the browser
+npx --allow-git=root github:0-draft/ccretro -d 7         # last week
+npx --allow-git=root github:0-draft/ccretro -d 0         # everything on disk and in the archive
+npx --allow-git=root github:0-draft/ccretro --redact     # share mode
+npx --allow-git=root github:0-draft/ccretro -x work/acme # leave a project out completely
+npx --allow-git=root github:0-draft/ccretro --dry-run    # print exactly what would be sent to claude
 ```
 
 | Option | Default | Meaning |

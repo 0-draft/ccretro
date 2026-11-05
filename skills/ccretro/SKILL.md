@@ -17,7 +17,7 @@ node "${CLAUDE_SKILL_DIR}/../../bin/ccretro.mjs" $ARGUMENTS
 ```
 
 - If the user gave a bare number ("/ccretro 7"), turn it into `--days 7`; the CLI takes no positional arguments.
-- If that path doesn't exist (the skill was copied without the rest of the repo), fall back to `npx --yes github:0-draft/ccretro`.
+- If that path doesn't exist (the skill was copied without the rest of the repo), fall back to `npx --yes --allow-git=root github:0-draft/ccretro` (npm 12 refuses git packages without `--allow-git`).
 - It calls `claude -p` for the narrative. If that fails (no network in a sandbox, not logged in), it falls back to rule-based output and says so on stderr. Tell the user which one they got.
 - If the user has private projects they don't want summarised, pass `--exclude-project <name>` or point them at `~/.config/ccretro/config.json` (`{"excludeProjects": [...]}`).
 
