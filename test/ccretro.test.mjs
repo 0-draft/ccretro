@@ -318,4 +318,12 @@ test('cached summaries from an older parser are re-read, deleted ones are kept',
   assert.equal(r.parsed, r.fileCount);
   assert.ok(r.archived >= 1, 'summaries of deleted transcripts are not dropped');
   assert.ok(r.sessions.filter((s) => fs.existsSync(s.file)).every((s) => s.prs));
+  // An archived summary without PR data makes earlier periods incomplete.
+  const old = { ...r.sessions[0], prs: undefined, end: Date.now() - 10 * 86400e3 };
+  const all = [...r.sessions.filter((x) => x.prs), old];
+  const cur = analyze(all, { days: 7 });
+  assert.equal(cur.totals.prsComplete, true);
+  const prev = analyze(all, { days: 7, until: cur.period.from });
+  assert.equal(prev.totals.prsComplete, false);
+  assert.ok(!('prs' in (compare(cur, prev) || {})));
 });

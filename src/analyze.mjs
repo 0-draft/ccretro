@@ -64,6 +64,10 @@ export function analyze(sessions, { days, until, pricing = {} }) {
   // A PR belongs to the period in which any session first linked it, so one
   // that keeps being worked on is not counted again in later periods.
   const firstPr = new Map();
+  // Summaries archived before PR tracking existed carry no `prs`: a period
+  // that reaches back into them is undercounted, so compare() leaves it out.
+  let prsSince = 0;
+  for (const s of sessions) if (!s.prs && s.end > prsSince) prsSince = s.end;
   for (const s of sessions) {
     for (const [url, x] of Object.entries(s.prs || {})) {
       if (!(firstPr.get(url)?.t <= x.t)) firstPr.set(url, x);
@@ -213,7 +217,7 @@ export function analyze(sessions, { days, until, pricing = {} }) {
       tokens: tot.tok, toolCalls, peakWeekday: peakWd, peakHour: peakHr,
       lateNightShare: tot.prompts ? lateNight / prompts.length : 0,
       projects: projList.length,
-      prs: prCount, prRepos: Object.keys(prRepos).length,
+      prs: prCount, prRepos: Object.keys(prRepos).length, prsComplete: from >= prsSince,
     },
     series, heat,
     projects: projList.slice(0, 20).map((p) => ({ ...p, hours: Math.round((p.activeMs / 3600e3) * 10) / 10 })),
@@ -273,5 +277,7 @@ export function compare(cur, prev) {
   });
   const a = pick(cur), b = pick(prev);
   if (!prev.totals.prompts) return null;
-  return Object.fromEntries(Object.keys(a).map((k) => [k, { now: a[k], prev: b[k] }]));
+  const out = Object.fromEntries(Object.keys(a).map((k) => [k, { now: a[k], prev: b[k] }]));
+  if (!prev.totals.prsComplete) delete out.prs;
+  return out;
 }

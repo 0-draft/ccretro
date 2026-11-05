@@ -98,7 +98,7 @@ Run it monthly. `/schedule` can generate the report on a timer; applying changes
 - **Previous period**: the same length immediately before; omitted when it reaches back past the oldest data.
 - **Tool error rate**: tool results flagged `is_error` over all tool calls.
 - **Cache hit rate**: cache-read input tokens over all input tokens, main and subagent sessions.
-- **Pull requests**: PRs a session created or linked (Claude Code records these as `pr-link` entries), de-duplicated by URL and counted in the period where any session first linked them, so a PR you keep coming back to counts once. `--redact` aliases the repository names.
+- **Pull requests**: PRs a session created or linked (Claude Code records these as `pr-link` entries), de-duplicated by URL and counted in the period where any session first linked them, so a PR you keep coming back to counts once. Summaries archived by ccretro before 0.4.0 have no PR data, so the previous-period comparison for PRs is left out until the period is fully covered. `--redact` aliases the repository names.
 - **Cost**: per assistant message, by model and pricing tier, deduplicated by message id; subagent sessions included.
 
 ## Development
