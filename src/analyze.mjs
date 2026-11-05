@@ -7,6 +7,7 @@ import { costOf, canonical } from './pricing.mjs';
 
 const add = (dst, src) => { for (const [k, v] of Object.entries(src || {})) dst[k] = (dst[k] || 0) + v; };
 const top = (o, n = 10) => Object.entries(o).sort((a, b) => b[1] - a[1]).slice(0, n);
+const inc = (o, k) => { o[k] = (o[k] || 0) + 1; };
 const sum = (o) => Object.values(o).reduce((a, b) => a + b, 0);
 
 export function projectName(cwd) {
@@ -59,6 +60,25 @@ export function analyze(sessions, { days, until, pricing = {} }) {
   const byId = new Map();
   for (const s of sessions) {
     if (!s.isSub && s.sessionId) byId.set(s.sessionId, s);
+  }
+  // A PR belongs to the period in which any session first linked it, so one
+  // that keeps being worked on is not counted again in later periods.
+  const firstPr = new Map();
+  // Summaries archived before PR tracking existed carry no `prs`: a period
+  // that reaches back into them is undercounted, so compare() leaves it out.
+  let prsSince = 0;
+  for (const s of sessions) if (!s.prs && s.end > prsSince) prsSince = s.end;
+  for (const s of sessions) {
+    for (const [url, x] of Object.entries(s.prs || {})) {
+      if (!(firstPr.get(url)?.t <= x.t)) firstPr.set(url, x);
+    }
+  }
+  const prRepos = {};
+  let prCount = 0;
+  for (const [url, x] of firstPr) {
+    if (x.t < from || x.t >= now) continue;
+    prCount++;
+    inc(prRepos, x.repo || url.replace(/^https?:\/\/[^/]+\/|\/pull\/.*$/g, ''));
   }
 
   for (const s of sessions) {
@@ -197,6 +217,7 @@ export function analyze(sessions, { days, until, pricing = {} }) {
       tokens: tot.tok, toolCalls, peakWeekday: peakWd, peakHour: peakHr,
       lateNightShare: tot.prompts ? lateNight / prompts.length : 0,
       projects: projList.length,
+      prs: prCount, prRepos: Object.keys(prRepos).length, prsComplete: from >= prsSince,
     },
     series, heat,
     projects: projList.slice(0, 20).map((p) => ({ ...p, hours: Math.round((p.activeMs / 3600e3) * 10) / 10 })),
@@ -205,6 +226,7 @@ export function analyze(sessions, { days, until, pricing = {} }) {
       tools: top(agg.tools, 15), skills: top(agg.skills, 15), agents: top(agg.agents, 10),
       mcp: top(mcp, 10), models: top(agg.models, 6), exts: top(agg.exts, 10), cmds: top(agg.cmds, 12),
       permissionModes: top(perm, 6),
+      prRepos: top(prRepos, 10),
       delegation: { agentCalls: sum(agg.agents), skillCalls: sum(agg.skills), toolCallsPerPrompt: tot.prompts ? Math.round((toolCalls / tot.prompts) * 10) / 10 : 0 },
     },
     friction: {
@@ -249,11 +271,13 @@ export function inventory(report) {
 export function compare(cur, prev) {
   const pick = (r) => ({
     prompts: r.totals.prompts, sessions: r.totals.sessions, activeHours: r.totals.activeHours,
-    activeDays: r.totals.activeDays, projects: r.totals.projects, costUsd: r.totals.costUsd,
+    activeDays: r.totals.activeDays, projects: r.totals.projects, costUsd: r.totals.costUsd, prs: r.totals.prs,
     interruptsPer100: r.friction.interruptsPer100, errorRate: r.friction.errorRate,
     agentCalls: r.usage.delegation.agentCalls, skillCalls: r.usage.delegation.skillCalls,
   });
   const a = pick(cur), b = pick(prev);
   if (!prev.totals.prompts) return null;
-  return Object.fromEntries(Object.keys(a).map((k) => [k, { now: a[k], prev: b[k] }]));
+  const out = Object.fromEntries(Object.keys(a).map((k) => [k, { now: a[k], prev: b[k] }]));
+  if (!prev.totals.prsComplete) delete out.prs;
+  return out;
 }

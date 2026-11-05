@@ -72,6 +72,7 @@ export function digest(r, inv, lang, previous) {
     `SUBAGENTS USED: ${r.usage.agents.map(([k, v]) => `${k}=${v}`).join(', ') || 'none'}`,
     `MCP: ${r.usage.mcp.map(([k, v]) => `${k}=${v}`).join(', ') || 'none'}`,
     `SLASH COMMANDS: ${r.usage.cmds.map(([k, v]) => `${k}=${v}`).join(', ') || 'none'}`,
+    `PULL REQUESTS (created or linked from a session, first seen in this period): ${r.totals.prs} across ${r.totals.prRepos} repos — ${r.usage.prRepos.map(([k, v]) => `${k}=${v}`).join(', ') || 'none'}`,
     `MODELS: ${r.usage.models.map(([k, v]) => `${k}=${v}`).join(', ')}`,
     `PERMISSION MODES: ${r.usage.permissionModes.map(([k, v]) => `${k}=${v}`).join(', ') || 'n/a'}`,
     `FILES EDITED BY EXT: ${r.usage.exts.map(([k, v]) => `${k}=${v}`).join(', ')}`,
