@@ -283,3 +283,39 @@ test('cost estimate flows from transcripts to totals, splitting cache TTLs', asy
   assert.ok(r.totals.unpricedTokens > 0, 'claude-test fixture model has no price');
   fs.rmSync(path.join(process.env.CLAUDE_CONFIG_DIR, 'projects', '-p'), { recursive: true });
 });
+
+test('pull requests: deduplicated across refreshes and sessions, in the period first linked', async () => {
+  const pr = (t, n, repo = 'acme/app') => ({ type: 'pr-link', timestamp: iso(t), prNumber: n, prRepository: repo, prUrl: `https://github.com/${repo}/pull/${n}` });
+  writeSession('-q', 's12', path.join(home, 'prs'), [
+    user(base, 'open a pr', 'u12'),
+    pr(base + 1000, 1), pr(base + 60e3, 1), // refresh of the same PR
+    pr(base + 2000, 2, 'acme/lib'),
+    pr(base - 20 * 86400e3, 3), // first linked long before this week
+  ]);
+  writeSession('-q', 's13', path.join(home, 'prs'), [user(base + 3 * H, 'follow up', 'u13'), pr(base + 3 * H, 1), pr(base + 3 * H, 3)]);
+  const { sessions: s2 } = await collect({ warn() {} });
+  const r = analyze(s2, { days: 7 });
+  assert.equal(r.totals.prs, 2);
+  assert.equal(r.totals.prRepos, 2);
+  assert.deepEqual(Object.fromEntries(r.usage.prRepos), { 'acme/app': 1, 'acme/lib': 1 });
+  assert.equal(analyze(s2, { days: 30 }).totals.prs, 3);
+  assert.equal(analyze(s2, { days: 14, until: base - 7 * 86400e3 }).totals.prs, 1);
+  assert.match(digest(r, { skills: [], agents: [], commands: [], hookEvents: [], projectClaudeMd: [] }, 'en'), /PULL REQUESTS .*: 2 across 2 repos — acme\/app=1, acme\/lib=1/);
+
+  const out = path.join(tmp, 'pr.html');
+  execFileSync(process.execPath, ['bin/ccretro.mjs', '--no-ai', '--no-open', '--redact', '-d', '7', '-o', out], { env: process.env, stdio: 'ignore' });
+  for (const f of [out, out.replace(/\.html$/, '.json')]) assert.doesNotMatch(fs.readFileSync(f, 'utf8'), /acme/, f);
+  assert.match(fs.readFileSync(out.replace(/\.html$/, '.json'), 'utf8'), /"repo 1"/);
+  fs.rmSync(path.join(process.env.CLAUDE_CONFIG_DIR, 'projects', '-q'), { recursive: true });
+});
+
+test('cached summaries from an older parser are re-read, deleted ones are kept', async () => {
+  const file = path.join(process.env.XDG_DATA_HOME, 'ccretro', 'archive.json');
+  const j = JSON.parse(fs.readFileSync(file, 'utf8'));
+  for (const e of Object.values(j.files)) { delete e.rev; delete e.s.prs; }
+  fs.writeFileSync(file, JSON.stringify(j));
+  const r = await collect({ warn() {} });
+  assert.equal(r.parsed, r.fileCount);
+  assert.ok(r.archived >= 1, 'summaries of deleted transcripts are not dropped');
+  assert.ok(r.sessions.filter((s) => fs.existsSync(s.file)).every((s) => s.prs));
+});

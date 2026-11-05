@@ -6,6 +6,10 @@ import os from 'node:os';
 import readline from 'node:readline';
 
 const CACHE_VERSION = 5;
+// Bump when summarize() learns a new field. Cached summaries of transcripts
+// still on disk are re-parsed; ones Claude Code already deleted are kept as-is
+// (bumping CACHE_VERSION instead would park the whole archive aside).
+const PARSE_REV = 1;
 const IDLE_MS = 5 * 60e3; // gaps longer than this end an activity span
 const PROMPT_MAX = 400;
 
@@ -79,6 +83,7 @@ async function summarize(file) {
   const s = {
     file, isSub, sessionId: null, cwd: null, title: null, entrypoint: null,
     start: null, end: null, prompts: [], days: {}, permissionModes: {}, spans: [],
+    prs: {}, // PR url → { t: first seen, repo }
   };
   const seenMsg = new Set();
   const day = (ms) => (s.days[dayKey(ms)] ||= newDay());
@@ -103,6 +108,12 @@ async function summarize(file) {
     const last = s.spans[s.spans.length - 1];
     if (last && ms >= last[0] && ms - last[1] <= IDLE_MS) last[1] = Math.max(last[1], ms);
     else s.spans.push([ms, ms]);
+
+    if (t === 'pr-link') {
+      // Written when a session creates or links a PR, then repeated on refresh.
+      if (d.prUrl && !(s.prs[d.prUrl]?.t <= ms)) s.prs[d.prUrl] = { t: ms, repo: d.prRepository || null };
+      continue;
+    }
 
     if (t === 'system') {
       if (d.subtype === 'turn_duration' && d.durationMs) day(ms).turnMs += d.durationMs;
@@ -227,7 +238,7 @@ export async function collect({ onProgress, warn = (m) => process.stderr.write(`
     let st;
     try { st = fs.statSync(f); } catch { keepArchived(f); continue; } // deleted mid-scan
     const key = `${st.size}:${st.mtimeMs}`;
-    if (sameTz && cache[f]?.key === key) { next[f] = cache[f]; out.push(cache[f].s); }
+    if (sameTz && cache[f]?.key === key && (cache[f].rev || 0) >= PARSE_REV) { next[f] = cache[f]; out.push(cache[f].s); }
     else todo.push({ f, key });
   }
   // Keep summaries of transcripts that are gone from disk, but only ones that
@@ -246,7 +257,7 @@ export async function collect({ onProgress, warn = (m) => process.stderr.write(`
       const { f, key } = todo[i++];
       try {
         const s = await summarize(f);
-        next[f] = { key, s };
+        next[f] = { key, rev: PARSE_REV, s };
         out.push(s);
       } catch { keepArchived(f); }
       parsed++;

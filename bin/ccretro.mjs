@@ -133,6 +133,7 @@ if (o.redact) {
   const all = reports.all;
   for (const [n] of all.usage.skills) aliasOf('skill', n);
   for (const p of all.projects) aliasOf('project', p.name);
+  for (const [n] of all.usage.prRepos) aliasOf('repo', n);
   const mask = (rows, keep, kind) => rows.map(([k, v]) => [keep.has(k) ? k : aliasOf(kind, k), v]);
   const sumBy = (rows) => Object.entries(rows.reduce((o, [k, v]) => ({ ...o, [k]: (o[k] || 0) + v }), {})).sort((a, b) => b[1] - a[1]);
   for (const r of Object.values(reports)) {
@@ -143,6 +144,7 @@ if (o.redact) {
     r.usage.agents = mask(r.usage.agents, BUILTIN_AGENTS, 'agent');
     r.usage.cmds = mask(r.usage.cmds, BUILTIN_CMDS, 'command');
     r.usage.mcp = mask(r.usage.mcp, PUBLIC_MCP, 'mcp');
+    r.usage.prRepos = mask(r.usage.prRepos, new Set(), 'repo');
     r.usage.tools = sumBy(r.usage.tools.map(([k, v]) => [k.startsWith('mcp__') ? 'mcp tools' : k, v]));
     r.usage.exts = r.usage.exts.filter(([k]) => k.startsWith('.'));
   }

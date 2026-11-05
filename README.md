@@ -23,7 +23,7 @@ Claude Code ships `/insights` and `/usage`, and they are good. Use them. ccretro
 ## What the page shows
 
 - Headline and a short summary of the period
-- Most active weekday, peak hour, sessions, prompts, active days, wall-clock hours (parallel sessions merged), projects, each with change vs the previous period
+- Most active weekday, peak hour, sessions, prompts, active days, wall-clock hours (parallel sessions merged), projects, pull requests, each with change vs the previous period
 - API-equivalent cost by day and by model (what the tokens would cost at API list prices; a subscription doesn't bill this)
 - Daily prompts, active hours or cost, and a weekday × hour heatmap
 - What you worked on, by theme and by project
@@ -32,7 +32,7 @@ Claude Code ships `/insights` and `/usage`, and they are good. Use them. ccretro
 - What to do next, with ready-to-paste snippets
 - Prompts you keep typing
 - Friction: interrupts, rejected tool uses, tool error rate, compactions, prompt cache hit rate
-- Tools, skills, subagents, MCP servers, slash commands, file types, models
+- Tools, skills, subagents, MCP servers, slash commands, file types, models, pull requests by repository
 
 The period switch (7 days / 1 month / 3 months / all time) recomputes every number on the page. The written parts cover the period passed with `--days`.
 
@@ -98,6 +98,7 @@ Run it monthly. `/schedule` can generate the report on a timer; applying changes
 - **Previous period**: the same length immediately before; omitted when it reaches back past the oldest data.
 - **Tool error rate**: tool results flagged `is_error` over all tool calls.
 - **Cache hit rate**: cache-read input tokens over all input tokens, main and subagent sessions.
+- **Pull requests**: PRs a session created or linked (Claude Code records these as `pr-link` entries), de-duplicated by URL and counted in the period where any session first linked them, so a PR you keep coming back to counts once. `--redact` aliases the repository names.
 - **Cost**: per assistant message, by model and pricing tier, deduplicated by message id; subagent sessions included.
 
 ## Development
