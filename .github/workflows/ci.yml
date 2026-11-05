@@ -32,6 +32,11 @@ jobs:
         run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -color
 
   build:
+    strategy:
+      fail-fast: false
+      matrix:
+        # 24 ships npm 11, 26 ships npm 12: they print `npm pack --json` differently.
+        node: [24, 26]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -40,7 +45,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 24
+          node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci
       - name: package contents, plugin manifests, CLI smoke
@@ -51,7 +56,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        node: [20, 22, 24]
+        node: [20, 22, 24, 26]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     steps:

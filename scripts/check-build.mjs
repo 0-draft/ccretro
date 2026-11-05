@@ -9,7 +9,9 @@ const fail = (msg) => { console.error(`✖ ${msg}`); process.exitCode = 1; };
 const ok = (msg) => console.log(`✔ ${msg}`);
 
 // 1. Package contents
-const [pack] = JSON.parse(execFileSync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], { encoding: 'utf8', shell: process.platform === 'win32' }));
+const packed = JSON.parse(execFileSync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], { encoding: 'utf8', shell: process.platform === 'win32' }));
+// npm <= 11 prints an array of packages; npm 12 prints an object keyed by package name.
+const [pack] = Array.isArray(packed) ? packed : Object.values(packed);
 const files = pack.files.map((f) => f.path);
 for (const need of ['bin/ccretro.mjs', 'src/collect.mjs', 'src/analyze.mjs', 'src/insight.mjs', 'src/render.mjs', 'skills/ccretro/SKILL.md', '.claude-plugin/plugin.json', 'README.md', 'LICENSE']) {
   if (!files.includes(need)) fail(`package is missing ${need}`);
