@@ -145,14 +145,36 @@ export function runClaude(text, { lang, model, redact = false, timeoutMs = 300e3
   });
 }
 
+// Cut at a word boundary when the text has spaces; otherwise (Japanese) at n characters.
+export function clip(text, n) {
+  const t = String(text).trim();
+  if (t.length <= n) return t;
+  const cut = t.slice(0, n + 1);
+  const sp = cut.lastIndexOf(' ');
+  return (sp > n / 2 ? cut.slice(0, sp) : t.slice(0, n)).replace(/[\s,.;:、。]+$/, '') + '…';
+}
+
+// A repeated prompt is already covered when every word of an existing skill or
+// command name appears in it: "run-tests" covers "run the tests and fix what broke".
+export function coveredBy(text, names) {
+  const words = new Set(String(text).toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean));
+  const has = (w) => words.has(w) || words.has(`${w}s`) || (w.endsWith('s') && words.has(w.slice(0, -1)));
+  return names.some((name) => {
+    const parts = String(name).toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 2);
+    return parts.length > 0 && parts.every(has);
+  });
+}
+
 // Deterministic fallback so the report is useful without an LLM call.
 export function heuristic(r, inv, lang) {
   const ja = lang === 'ja';
   const wd = WD[lang] || WD.en;
   const top = r.projects[0];
   const acts = [];
-  for (const x of r.repeated.slice(0, 2)) {
-    acts.push({ kind: 'skill', title: ja ? `「${x.text.slice(0, 24)}」を skill / コマンド化` : `Turn "${x.text.slice(0, 24)}" into a skill`,
+  const existing = [...(inv.skills || []), ...(inv.commands || [])];
+  for (const x of r.repeated.filter((y) => !coveredBy(y.text, existing)).slice(0, 2)) {
+    const t = clip(x.text, 24);
+    acts.push({ kind: 'skill', title: ja ? `「${t}」を skill / コマンド化` : `Turn "${t}" into a skill`,
       why: ja ? `${x.count} 回同じ指示を打っている` : `typed ${x.count} times`, how: ja ? '~/.claude/skills/<name>/SKILL.md に手順を書く' : 'write the steps into ~/.claude/skills/<name>/SKILL.md' });
   }
   if (r.friction.rejectsPer100 > 3) acts.push({ kind: 'permissions', title: ja ? '承認拒否の多いツールを整理' : 'Tune permissions', why: `${r.friction.rejects} rejects`, how: ja ? '/permissions で allow/deny を見直す' : 'review allow/deny via /permissions' });
