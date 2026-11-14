@@ -15,7 +15,7 @@ process.env.XDG_DATA_HOME = path.join(tmp, 'data');
 
 const { collect, dayKey } = await import('../src/collect.mjs');
 const { analyze, compare } = await import('../src/analyze.mjs');
-const { digest, heuristic } = await import('../src/insight.mjs');
+const { digest, heuristic, clip, coveredBy } = await import('../src/insight.mjs');
 const { render } = await import('../src/render.mjs');
 
 const H = 3600e3;
@@ -326,4 +326,31 @@ test('cached summaries from an older parser are re-read, deleted ones are kept',
   const prev = analyze(all, { days: 7, until: cur.period.from });
   assert.equal(prev.totals.prsComplete, false);
   assert.ok(!('prs' in (compare(cur, prev) || {})));
+});
+
+test('clip cuts at a word boundary, or at n characters without spaces', () => {
+  assert.equal(clip('run the tests and fix what broke', 24), 'run the tests and fix…');
+  assert.equal(clip('short prompt', 24), 'short prompt');
+  assert.equal(clip('テストを実行して壊れたところを直してからコミットして', 10), 'テストを実行して壊れ…');
+});
+
+test('coveredBy matches every word of a skill or command name', () => {
+  assert.equal(coveredBy('run the tests and fix what broke', ['run-tests']), true);
+  assert.equal(coveredBy('run the test suite', ['run-tests']), true);
+  assert.equal(coveredBy('run the linter', ['run-tests']), false);
+  assert.equal(coveredBy('anything', []), false);
+});
+
+test('heuristic does not suggest a skill that already exists', () => {
+  const r = {
+    repeated: [{ text: 'run the tests and fix what broke', count: 9 }, { text: 'summarize the open review comments', count: 5 }],
+    friction: { rejectsPer100: 0, rejects: 0 },
+    projects: [{ name: 'project 1', prompts: 10, titles: [] }],
+    usage: { delegation: { agentCalls: 1 } },
+    totals: { prompts: 10, sessions: 2, projects: 1, peakWeekday: 1, peakHour: 10 },
+    period: { days: 30 },
+  };
+  const inv = { skills: ['run-tests'], commands: [], projectClaudeMd: [] };
+  const titles = heuristic(r, inv, 'en').nextActions.filter((a) => a.kind === 'skill').map((a) => a.title);
+  assert.deepEqual(titles, ['Turn "summarize the open…" into a skill']);
 });
