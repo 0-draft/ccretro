@@ -141,6 +141,9 @@ export function runClaude(text, { lang, model, redact = false, timeoutMs = 300e3
         resolve({ ...so, _meta: { model: model || 'default', costUsd: j.total_cost_usd, ms: j.duration_ms } });
       } catch (e) { reject(new Error(`could not parse claude output: ${e.message}`)); }
     });
+    // If claude exits before reading stdin, the write fails with EPIPE; the
+    // 'close' handler reports the exit code, so don't let it crash the process.
+    child.stdin.on('error', () => {});
     child.stdin.end(text);
   });
 }
