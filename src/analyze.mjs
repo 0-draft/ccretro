@@ -38,15 +38,18 @@ function union(spans) {
 const spanMs = (xs) => xs.reduce((a, [x, y]) => a + (y - x), 0);
 
 // `until` lets the CLI compute the previous period for comparison.
-export function analyze(sessions, { days, until, pricing = {} }) {
+export function analyze(sessions, { days, until, pricing = {}, groupMcp = false }) {
   const now = until ?? Date.now();
   const toKey = dayKey(now);
   const from = days ? now - days * 86400e3 : 0;
   const fromKey = days ? dayKey(from) : '0000';
 
   const daily = {};
-  const agg = { tools: {}, skills: {}, agents: {}, models: {}, exts: {}, cmds: {} };
+  const agg = { tools: {}, skills: {}, agents: {}, models: {}, exts: {}, cmds: {}, errTools: {} };
   const byModel = {};
+  // Tool calls on days whose summary attributes errors (PARSE_REV >= 2): the
+  // denominator of each tool's failure rate, so archived summaries don't dilute it.
+  const errCalls = {};
   const tot = { prompts: 0, interrupts: 0, rejects: 0, toolErrors: 0, compacts: 0, turnMs: 0, tok: { in: 0, out: 0, cr: 0, cc: 0 } };
   const heat = Array.from({ length: 7 }, () => Array(24).fill(0));
   const projects = {};
@@ -99,6 +102,7 @@ export function analyze(sessions, { days, until, pricing = {} }) {
       }
       dd.cost = (dd.cost || 0) + dayCost;
       for (const f of Object.keys(agg)) add(agg[f], d[f]);
+      if (d.errTools) add(errCalls, d.tools);
     }
     if (!touched) continue;
     const owner = s.isSub ? byId.get(s.sessionId) : s;
@@ -233,6 +237,8 @@ export function analyze(sessions, { days, until, pricing = {} }) {
       interrupts: tot.interrupts, rejects: tot.rejects, toolErrors: tot.toolErrors, compacts: tot.compacts,
       interruptsPer100: per100(tot.interrupts), rejectsPer100: per100(tot.rejects),
       errorRate: toolCalls ? Math.round((tot.toolErrors / toolCalls) * 1000) / 10 : 0,
+      // [tool, errors, calls]: which tools the errors come from, and how often each one fails.
+      errorsByTool: errorsByTool(agg.errTools, errCalls, groupMcp),
     },
     style: {
       medianChars: median, shareShort: lens.length ? short / lens.length : 0,
@@ -241,6 +247,18 @@ export function analyze(sessions, { days, until, pricing = {} }) {
     repeated,
     prompts, sessions: sessionList,
   };
+}
+
+// [tool, errors, calls] for the tools with the most errors. `groupMcp` (share
+// mode) folds MCP tools into one row before the cut, so no server name survives
+// and the row's rate covers every MCP call. A call made just before the period
+// starts can have its error inside it, hence the max().
+function errorsByTool(errTools, calls, groupMcp) {
+  const key = (k) => (groupMcp && k.startsWith('mcp__') ? 'mcp tools' : k);
+  const errs = {}, n = {};
+  for (const [k, v] of Object.entries(errTools)) errs[key(k)] = (errs[key(k)] || 0) + v;
+  for (const [k, v] of Object.entries(calls)) n[key(k)] = (n[key(k)] || 0) + v;
+  return top(errs, 8).map(([k, e]) => [k, e, Math.max(n[k] || 0, e)]);
 }
 
 // What the user has already set up, so suggestions don't repeat it.

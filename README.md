@@ -33,7 +33,7 @@ Claude Code ships `/insights` and `/usage`, and they are good. Use them. ccretro
 - What happened to last time's suggestions
 - What to do next, with ready-to-paste snippets
 - Prompts you keep typing
-- Friction: interrupts, rejected tool uses, tool error rate, compactions, prompt cache hit rate
+- Friction: interrupts, rejected tool uses, tool error rate, compactions, prompt cache hit rate, and which tools the errors come from (count and each tool's own failure rate)
 - Tools, skills, subagents, MCP servers, slash commands, file types, models, pull requests by repository
 
 The period switch (7 days / 1 month / 3 months / all time) recomputes every number on the page. The written parts cover the period passed with `--days`.
@@ -98,7 +98,7 @@ Run it monthly. `/schedule` can generate the report on a timer; applying changes
 - **Prompts**: messages you typed, including slash commands. Tool results, injected reminders, interrupts and headless (`claude -p` / SDK) sessions are excluded; prompts copied into resumed sessions are de-duplicated by UUID.
 - **Active hours**: spans of transcript activity with gaps under 5 minutes, merged across all sessions, so three parallel sessions for an hour count as one hour.
 - **Previous period**: the same length immediately before; omitted when it reaches back past the oldest data.
-- **Tool error rate**: tool results flagged `is_error` over all tool calls.
+- **Tool error rate**: tool results flagged `is_error` over all tool calls. The per-tool breakdown matches each result to its `tool_use` in the same transcript; a result whose call is in another file (a resumed session) counts in the total but not in the breakdown, and so do summaries archived before 0.5.0. With `--redact`, MCP tools are grouped as `mcp tools`.
 - **Cache hit rate**: cache-read input tokens over all input tokens, main and subagent sessions.
 - **Pull requests**: PRs a session created or linked (Claude Code records these as `pr-link` entries), de-duplicated by URL and counted in the period where any session first linked them, so a PR you keep coming back to counts once. Summaries archived by ccretro before 0.4.0 have no PR data: the previous-period comparison for PRs is left out while the previous period reaches back into them, and a PR first linked in such a session counts in the period where it was next linked. `--redact` aliases the repository names.
 - **Cost**: per assistant message, by model and pricing tier, deduplicated by message id; subagent sessions included.

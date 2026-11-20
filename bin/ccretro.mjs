@@ -101,13 +101,13 @@ if (days === 0 || days > cleanupDays) {
 }
 
 const reports = {};
-for (const k of new Set(['7', '30', '90', 'all', mainKey])) reports[k] = analyze(kept, { days: k === 'all' ? 0 : Number(k), pricing });
+for (const k of new Set(['7', '30', '90', 'all', mainKey])) reports[k] = analyze(kept, { days: k === 'all' ? 0 : Number(k), pricing, groupMcp: !!o.redact });
 const earliest = Math.min(...kept.filter((s) => s.start).map((s) => s.start));
 for (const [k, r] of Object.entries(reports)) {
   if (k === 'all') continue;
   // Skip the comparison when the previous window predates the oldest data we have.
   const prevFrom = r.period.from - Number(k) * 86400e3;
-  r.compare = earliest <= prevFrom + 86400e3 ? compare(r, analyze(kept, { days: Number(k), until: r.period.from, pricing })) : null;
+  r.compare = earliest <= prevFrom + 86400e3 ? compare(r, analyze(kept, { days: Number(k), until: r.period.from, pricing, groupMcp: !!o.redact })) : null;
 }
 const ordered = Object.fromEntries(['7', '30', '90', 'all', mainKey].filter((k, i, a) => a.indexOf(k) === i)
   .sort((a, b) => (a === 'all' ? 1e9 : +a) - (b === 'all' ? 1e9 : +b)).map((k) => [k, reports[k]]));

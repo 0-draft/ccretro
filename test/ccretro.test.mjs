@@ -33,7 +33,7 @@ const asst = (t, id, tools = [], usage = { input_tokens: 10, output_tokens: 5, c
   type: 'assistant', timestamp: iso(t),
   message: { id, model: 'claude-test', usage, content: tools.map((name, i) => ({ type: 'tool_use', id: `${id}-${i}`, name, input: name === 'Skill' ? { skill: 'demo' } : name === 'Edit' ? { file_path: '/x/a.ts' } : {} })) },
 });
-const result = (t, isError, text = 'ok') => ({ type: 'user', timestamp: iso(t), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'x', is_error: isError, content: text }] } });
+const result = (t, isError, text = 'ok', toolUseId = 'x') => ({ type: 'user', timestamp: iso(t), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolUseId, is_error: isError, content: text }] } });
 
 const home = os.homedir();
 writeSession('-a', 's1', path.join(home, 'proj-a'), [
@@ -41,7 +41,7 @@ writeSession('-a', 's1', path.join(home, 'proj-a'), [
   user(base, '全部やれ。', 'u1'),
   asst(base + 1000, 'm1', ['Bash', 'Edit']),
   asst(base + 1500, 'm1', ['Skill']), // same message id split across blocks: tokens counted once
-  result(base + 2000, true, 'boom'),
+  result(base + 2000, true, 'boom', 'm1-1'), // the Edit call above
   result(base + 2500, false, "The user doesn't want to proceed with this tool use."),
   user(base + 60e3, '[Request interrupted by user]', 'u-int'),
   user(base + 120e3, '全部やれよ', 'u2'),
@@ -68,6 +68,7 @@ test('counts typed prompts only, de-duplicated across resumed sessions', () => {
   assert.equal(r.friction.interrupts, 1);
   assert.equal(r.friction.rejects, 1);
   assert.equal(r.friction.toolErrors, 1);
+  assert.deepEqual(r.friction.errorsByTool, [['Edit', 1, 1]]);
 });
 
 test('tool, skill and token accounting', () => {
@@ -307,6 +308,36 @@ test('pull requests: deduplicated across refreshes and sessions, in the period f
   for (const f of [out, out.replace(/\.html$/, '.json')]) assert.doesNotMatch(fs.readFileSync(f, 'utf8'), /acme/, f);
   assert.match(fs.readFileSync(out.replace(/\.html$/, '.json'), 'utf8'), /"repo 1"/);
   fs.rmSync(path.join(process.env.CLAUDE_CONFIG_DIR, 'projects', '-q'), { recursive: true });
+});
+
+test('tool errors are attributed to the tool that failed; redact hides MCP server names', async () => {
+  writeSession('-t', 's14', path.join(home, 'errs'), [
+    user(base, 'fetch it', 'u14'),
+    asst(base + 1000, 'm14', ['mcp__acmecorp__lookup', 'mcp__acmecorp__list', 'WebFetch', 'WebFetch']),
+    result(base + 2000, true, 'boom', 'm14-0'),
+    result(base + 2100, true, 'boom', 'm14-2'),
+    result(base + 2200, true, 'boom', 'm14-3'),
+    result(base + 2300, true, 'boom', 'resumed-elsewhere'), // tool_use not in this file
+  ]);
+  const { sessions: s2 } = await collect({ warn() {} });
+  const r = analyze(s2, { days: 7 });
+  assert.equal(r.friction.toolErrors, 5); // 1 from s1 + 4 here
+  assert.deepEqual(r.friction.errorsByTool[0], ['WebFetch', 2, 2]);
+  assert.deepEqual(Object.fromEntries(r.friction.errorsByTool.map(([k, n, c]) => [k, [n, c]])), { WebFetch: [2, 2], Edit: [1, 1], mcp__acmecorp__lookup: [1, 1] });
+  assert.match(digest(r, { skills: [], agents: [], commands: [], hookEvents: [], projectClaudeMd: [] }, 'en'), /TOOL ERRORS BY TOOL .*: WebFetch=2\/2, .*mcp__acmecorp__lookup=1\/1/);
+
+  const out = path.join(tmp, 'errs.html');
+  execFileSync(process.execPath, ['bin/ccretro.mjs', '--no-ai', '--no-open', '-d', '7', '-o', out], { env: process.env, stdio: 'ignore' });
+  assert.match(fs.readFileSync(out, 'utf8'), /"errorsByTool":\[\["WebFetch",2,2\]/);
+  execFileSync(process.execPath, ['bin/ccretro.mjs', '--no-ai', '--no-open', '--redact', '-d', '7', '-o', out], { env: process.env, stdio: 'ignore' });
+  for (const f of [out, out.replace(/\.html$/, '.json')]) assert.doesNotMatch(fs.readFileSync(f, 'utf8'), /acmecorp/, f);
+  assert.match(fs.readFileSync(out, 'utf8'), /\["mcp tools",1,2\]/); // both MCP calls, not just the failing one
+
+  // A summary archived before PARSE_REV 2 has calls but no errTools: it must not dilute the rates.
+  const old = s2.map((x) => ({ ...x, days: Object.fromEntries(Object.entries(x.days).map(([k, d]) => [k, { ...d, errTools: undefined }])) }));
+  const mixed = analyze([...s2, ...old.map((x) => ({ ...x, sessionId: `${x.sessionId}-old`, file: `${x.file}.old` }))], { days: 7 });
+  assert.deepEqual(mixed.friction.errorsByTool[0], ['WebFetch', 2, 2]);
+  fs.rmSync(path.join(process.env.CLAUDE_CONFIG_DIR, 'projects', '-t'), { recursive: true });
 });
 
 test('cached summaries from an older parser are re-read, deleted ones are kept', async () => {

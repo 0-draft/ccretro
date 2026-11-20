@@ -67,6 +67,7 @@ export function digest(r, inv, lang, previous) {
     `PROMPT STYLE: medianChars=${r.style.medianChars} short(<=15 chars)=${(r.style.shareShort * 100).toFixed(0)}% long(>=400)=${(r.style.shareLong * 100).toFixed(0)}% withImages=${r.style.withImages}`,
     `DELEGATION: subagentCalls=${r.usage.delegation.agentCalls} skillCalls=${r.usage.delegation.skillCalls} toolCallsPerPrompt=${r.usage.delegation.toolCallsPerPrompt}`,
     `FRICTION: interrupts=${r.friction.interrupts} (${r.friction.interruptsPer100}/100 prompts) rejectedToolUses=${r.friction.rejects} toolErrors=${r.friction.toolErrors} (${r.friction.errorRate}% of tool calls) compactions=${r.friction.compacts}`,
+    `TOOL ERRORS BY TOOL (errors / calls of that tool): ${(r.friction.errorsByTool || []).map(([k, n, c]) => `${k}=${n}/${c}`).join(', ') || 'none'}`,
     `TOOLS: ${r.usage.tools.map(([k, v]) => `${k}=${v}`).join(', ')}`,
     `SKILLS USED: ${r.usage.skills.map(([k, v]) => `${k}=${v}`).join(', ') || 'none'}`,
     `SUBAGENTS USED: ${r.usage.agents.map(([k, v]) => `${k}=${v}`).join(', ') || 'none'}`,
