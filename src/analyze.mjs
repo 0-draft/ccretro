@@ -45,7 +45,7 @@ export function analyze(sessions, { days, until, pricing = {}, groupMcp = false 
   const fromKey = days ? dayKey(from) : '0000';
 
   const daily = {};
-  const agg = { tools: {}, skills: {}, agents: {}, models: {}, exts: {}, cmds: {}, errTools: {} };
+  const agg = { tools: {}, skills: {}, agents: {}, models: {}, exts: {}, cmds: {}, errTools: {}, errCauses: {} };
   const byModel = {};
   // Tool calls on days whose summary attributes errors (PARSE_REV >= 2): the
   // denominator of each tool's failure rate, so archived summaries don't dilute it.
@@ -239,6 +239,12 @@ export function analyze(sessions, { days, until, pricing = {}, groupMcp = false 
       errorRate: toolCalls ? Math.round((tot.toolErrors / toolCalls) * 1000) / 10 : 0,
       // [tool, errors, calls]: which tools the errors come from, and how often each one fails.
       errorsByTool: errorsByTool(agg.errTools, errCalls, groupMcp),
+      // [cause, errors]: why they failed. Share mode drops hook script names.
+      errorsByCause: top(Object.entries(agg.errCauses).reduce((o, [k, v]) => {
+        const kk = groupMcp && k.startsWith('hook: ') ? 'hook' : k;
+        o[kk] = (o[kk] || 0) + v;
+        return o;
+      }, {}), 8),
     },
     style: {
       medianChars: median, shareShort: lens.length ? short / lens.length : 0,

@@ -13,7 +13,7 @@ process.env.XDG_CACHE_HOME = path.join(tmp, 'cache');
 process.env.XDG_CONFIG_HOME = path.join(tmp, 'config');
 process.env.XDG_DATA_HOME = path.join(tmp, 'data');
 
-const { collect, dayKey } = await import('../src/collect.mjs');
+const { collect, dayKey, errorCause } = await import('../src/collect.mjs');
 const { analyze, compare } = await import('../src/analyze.mjs');
 const { digest, heuristic, clip, coveredBy } = await import('../src/insight.mjs');
 const { render } = await import('../src/render.mjs');
@@ -387,4 +387,39 @@ test('heuristic does not suggest a skill that already exists', () => {
   const inv = { skills: ['run-tests'], commands: [], projectClaudeMd: [] };
   const titles = heuristic(r, inv, 'en').nextActions.filter((a) => a.kind === 'skill').map((a) => a.title);
   assert.deepEqual(titles, ['Turn "summarize the open…" into a skill']);
+});
+
+test('errorCause names what blocked or broke a tool call', () => {
+  const cases = [
+    ['PreToolUse:Bash hook error: [$HOME/.claude/hooks/commit-guard.sh]: Blocked: no', 'hook: commit-guard.sh'],
+    ['Permission for this action was denied by the Claude Code auto mode classifier. Reason: [Safety Bypass Flag]. If you have', 'auto mode: Safety Bypass Flag'],
+    ['<tool_use_error>allowed_domains cannot widen network access in this session</tool_use_error>', 'sandbox: allowed_domains refused'],
+    ['<tool_use_error>Blocked: sleep 30 followed by: gh pr checks 1', 'blocked: sleep before a command'],
+    ['<tool_use_error>File has not been read yet. Read it first before writing to it.</tool_use_error>', 'edit: stale or ambiguous match'],
+    ['Exit code 1\nboom', 'command exited non-zero'],
+    ['boom', 'other'],
+  ];
+  for (const [text, want] of cases) assert.equal(errorCause(text), want, text);
+});
+
+test('tool errors are grouped by cause; redact drops hook names; a busy hook is suggested', async () => {
+  const hookErr = 'PreToolUse:Bash hook error: [$HOME/.claude/hooks/acme-guard.sh]: Blocked: this text contains a path';
+  writeSession('-h', 's15', path.join(home, 'hooks'), [
+    user(base, 'post it', 'u15'),
+    asst(base + 1000, 'm15', Array(12).fill('Bash')),
+    ...Array.from({ length: 11 }, (_, i) => result(base + 2000 + i, true, hookErr, `m15-${i}`)),
+    result(base + 3000, true, 'Exit code 2\nnope', 'm15-11'),
+  ]);
+  const { sessions: s3 } = await collect({ warn() {} });
+  const r = analyze(s3, { days: 7 });
+  assert.deepEqual(r.friction.errorsByCause[0], ['hook: acme-guard.sh', 11]);
+  assert.match(digest(r, { skills: [], agents: [], commands: [], hookEvents: [], projectClaudeMd: [] }, 'en'), /TOOL ERRORS BY CAUSE .*: hook: acme-guard\.sh=11/);
+  const acts = heuristic(r, { skills: [], commands: [], projectClaudeMd: [] }, 'en').nextActions;
+  assert.ok(acts.some((a) => a.kind === 'hook' && /acme-guard\.sh blocked 11/.test(a.title)));
+  assert.deepEqual(analyze(s3, { days: 7, groupMcp: true }).friction.errorsByCause[0], ['hook', 11]);
+
+  const out = path.join(tmp, 'causes.html');
+  execFileSync(process.execPath, ['bin/ccretro.mjs', '--no-ai', '--no-open', '--redact', '-d', '7', '-o', out], { env: process.env, stdio: 'ignore' });
+  for (const f of [out, out.replace(/\.html$/, '.json')]) assert.doesNotMatch(fs.readFileSync(f, 'utf8'), /acme-guard/, f);
+  fs.rmSync(path.join(process.env.CLAUDE_CONFIG_DIR, 'projects', '-h'), { recursive: true });
 });

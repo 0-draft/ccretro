@@ -9,7 +9,7 @@ const CACHE_VERSION = 5;
 // Bump when summarize() learns a new field. Cached summaries of transcripts
 // still on disk are re-parsed; ones Claude Code already deleted are kept as-is
 // (bumping CACHE_VERSION instead would park the whole archive aside).
-const PARSE_REV = 3;
+const PARSE_REV = 4;
 const REJECTED = /^The user doesn't want to (proceed|take this action)/;
 const IDLE_MS = 5 * 60e3; // gaps longer than this end an activity span
 const PROMPT_MAX = 400;
@@ -76,7 +76,36 @@ function newDay() {
     byModel: {}, // model[@tier] → { in, out, cr, cc5, cc1h } for cost estimates
     tools: {}, skills: {}, agents: {}, models: {}, exts: {}, cmds: {},
     errTools: {}, // tool name → tool_results flagged is_error
+    errCauses: {}, // errorCause() → tool_results flagged is_error
   };
+}
+
+// Why a tool call failed, from the text of its error result. The tool name
+// says where errors come from; this says what to change: a hook that blocks
+// too much, a sandbox rule, the auto-mode classifier, or the command itself.
+export function errorCause(text) {
+  const t = String(text).trimStart();
+  let m = t.match(/^[\w:]+ hook error: \[([^\]]+)\]/);
+  if (m) return `hook: ${m[1].split(/[\\/]/).pop()}`;
+  m = t.match(/denied by the Claude Code auto mode classifier\. Reason: \[([^\]]+)\]/);
+  if (m) return `auto mode: ${m[1]}`;
+  if (/auto mode classifier/.test(t)) return 'auto mode';
+  if (/stopped by a safety classifier/.test(t)) return 'safety classifier';
+  if (/allowed_domains cannot widen/.test(t)) return 'sandbox: allowed_domains refused';
+  if (/<sandbox_violations>|Operation not permitted/.test(t)) return 'sandbox';
+  if (/^<tool_use_error>Blocked: sleep/.test(t)) return 'blocked: sleep before a command';
+  if (/^Permission to use .* (has been|was) denied|after a cd whose target cannot be resolved/.test(t)) return 'permission rule';
+  if (/File access denied/.test(t)) return 'file access denied';
+  if (/TimeoutError|Timeout \d+ms exceeded|timeout of \d+ms|timed out/i.test(t)) return 'timeout';
+  if (/net::ERR_|ECONNREFUSED|ECONNRESET|ENOTFOUND|ETIMEDOUT|getaddrinfo/.test(t)) return 'network';
+  if (/^File does not exist|ENOENT|No such file or directory/.test(t)) return 'file not found';
+  if (/^<tool_use_error>(File has not been read yet|File has been modified since read|String to replace not found|Found \d+ matches)/.test(t)) return 'edit: stale or ambiguous match';
+  if (/Concurrent subagent limit/.test(t)) return 'subagent limit';
+  m = t.match(/(?:status code|returned|Status:?) (\d{3})\b/);
+  if (m) return `http ${m[1]}`;
+  if (/^Exit code \d+/.test(t)) return 'command exited non-zero';
+  if (/^<tool_use_error>/.test(t)) return 'tool use error';
+  return 'other';
 }
 const inc = (o, k, n = 1) => { o[k] = (o[k] || 0) + n; };
 
@@ -182,6 +211,7 @@ async function summarize(file) {
           else if (b.is_error) {
             const dd = day(ms);
             dd.toolErrors++;
+            inc(dd.errCauses, errorCause(txt));
             // A result whose tool_use is in another file (a resumed session) stays unattributed.
             const name = toolName.get(b.tool_use_id);
             if (name) inc(dd.errTools, name);
