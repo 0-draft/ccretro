@@ -33,7 +33,7 @@ Claude Code ships `/insights` and `/usage`, and they are good. Use them. ccretro
 - What happened to last time's suggestions
 - What to do next, with ready-to-paste snippets
 - Prompts you keep typing
-- Friction: interrupts, rejected tool uses, tool error rate, compactions, prompt cache hit rate, and which tools the errors come from (count and each tool's own failure rate)
+- Friction: interrupts, rejected tool uses, tool error rate, compactions, prompt cache hit rate, which tools the errors come from (count and each tool's own failure rate), and why they failed (a hook that blocked the call, the auto-mode classifier, the sandbox, a permission rule, a timeout, a non-zero exit)
 - Tools, skills, subagents, MCP servers, slash commands, file types, models, pull requests by repository
 
 The period switch (7 days / 1 month / 3 months / all time) recomputes every number on the page. The written parts cover the period passed with `--days`.

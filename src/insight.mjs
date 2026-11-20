@@ -68,6 +68,7 @@ export function digest(r, inv, lang, previous) {
     `DELEGATION: subagentCalls=${r.usage.delegation.agentCalls} skillCalls=${r.usage.delegation.skillCalls} toolCallsPerPrompt=${r.usage.delegation.toolCallsPerPrompt}`,
     `FRICTION: interrupts=${r.friction.interrupts} (${r.friction.interruptsPer100}/100 prompts) rejectedToolUses=${r.friction.rejects} toolErrors=${r.friction.toolErrors} (${r.friction.errorRate}% of tool calls) compactions=${r.friction.compacts}`,
     `TOOL ERRORS BY TOOL (errors / calls of that tool): ${(r.friction.errorsByTool || []).map(([k, n, c]) => `${k}=${n}/${c}`).join(', ') || 'none'}`,
+    `TOOL ERRORS BY CAUSE (hook = a PreToolUse hook blocked the call; auto mode = the permission classifier denied it; sandbox = the Bash sandbox refused it): ${(r.friction.errorsByCause || []).map(([k, n]) => `${k}=${n}`).join(', ') || 'none'}`,
     `TOOLS: ${r.usage.tools.map(([k, v]) => `${k}=${v}`).join(', ')}`,
     `SKILLS USED: ${r.usage.skills.map(([k, v]) => `${k}=${v}`).join(', ') || 'none'}`,
     `SUBAGENTS USED: ${r.usage.agents.map(([k, v]) => `${k}=${v}`).join(', ') || 'none'}`,
@@ -182,6 +183,14 @@ export function heuristic(r, inv, lang) {
       why: ja ? `${x.count} 回同じ指示を打っている` : `typed ${x.count} times`, how: ja ? '~/.claude/skills/<name>/SKILL.md に手順を書く' : 'write the steps into ~/.claude/skills/<name>/SKILL.md' });
   }
   if (r.friction.rejectsPer100 > 3) acts.push({ kind: 'permissions', title: ja ? '承認拒否の多いツールを整理' : 'Tune permissions', why: `${r.friction.rejects} rejects`, how: ja ? '/permissions で allow/deny を見直す' : 'review allow/deny via /permissions' });
+  // A hook that blocks often is either doing its job or misfiring; either way it is worth a look.
+  const hook = (r.friction.errorsByCause || []).find(([k, n]) => k.startsWith('hook') && n >= 10);
+  if (hook) {
+    const name = hook[0].replace(/^hook: ?/, '') || 'hook';
+    acts.push({ kind: 'hook', title: ja ? `${name} が ${hook[1]} 回ツール呼び出しを止めた` : `${name} blocked ${hook[1]} tool calls`,
+      why: ja ? 'エラーの原因でいちばん多い hook のブロック' : 'the most frequent hook block among tool errors',
+      how: ja ? '止めた呼び出しを見て、誤検知なら hook の条件を絞る' : 'look at what it blocked; if those were false positives, narrow what the hook matches' });
+  }
   for (const p of inv.projectClaudeMd.filter((x) => !x.claudeMd).slice(0, 1)) {
     acts.push({ kind: 'claude-md', title: ja ? `${p.project} に CLAUDE.md を置く` : `Add CLAUDE.md to ${p.project}`, why: ja ? '利用の多いプロジェクトなのに未設定' : 'busy project without one', how: ja ? 'そのディレクトリで /init' : 'run /init there' });
   }
