@@ -82,8 +82,8 @@ export function digest(r, inv, lang, previous) {
     'PROJECTS (prompts / sessions / active hours / session titles):',
     ...r.projects.slice(0, 15).map((p) => `- ${p.name}: ${p.prompts} / ${p.sessions} / ${p.hours}h — ${p.titles.slice(0, 6).join(' | ')}`),
     '',
-    'REPEATED PROMPTS (normalised, count, #projects):',
-    ...r.repeated.map((x) => `- "${x.text.replace(/\s+/g, ' ')}" ×${x.count} in ${x.projects} projects`),
+    'REPEATED PROMPTS (normalised, count, #projects; "after" = how Claude\'s previous message ended: listed = with a list of remaining work, asked = with a question, waiting = waiting on CI or a background task, needs-go = asking for approval, done = reported done, reported = other):',
+    ...r.repeated.map((x) => `- "${x.text.replace(/\s+/g, ' ')}" ×${x.count} in ${x.projects} projects${(x.after || []).length ? ` — after: ${x.after.map(([k, v]) => `${k}=${v}`).join(', ')}` : ''}`),
     '',
     'EXISTING SETUP (do not suggest what already exists):',
     `global CLAUDE.md=${inv.globalClaudeMd} outputStyle=${inv.outputStyle} allowRules=${inv.allowRules} hookEvents=${inv.hookEvents.join(',') || 'none'}`,
@@ -177,7 +177,33 @@ export function heuristic(r, inv, lang) {
   const top = r.projects[0];
   const acts = [];
   const existing = [...(inv.skills || []), ...(inv.commands || [])];
-  for (const x of r.repeated.filter((y) => !coveredBy(y.text, existing)).slice(0, 2)) {
+  // A prompt that mostly answers the same kind of ending is a nudge, not a
+  // task: the fix is how Claude ends its turn, not a skill.
+  const NUDGE = {
+    listed: ja ? ['Claude が残作業を並べて止まった直後', 'CLAUDE.md に「今できる作業は残作業に書かずに片付けてから報告する」と書く']
+      : ['right after Claude ended on a list of remaining work', 'add to CLAUDE.md: "finish what you can do now instead of listing it as remaining work"'],
+    asked: ja ? ['Claude が質問で終わった直後', 'CLAUDE.md に「選択肢を出して止まらず、推奨案で進める」と書く']
+      : ['right after Claude ended on a question', 'add to CLAUDE.md: "pick the recommended option and continue instead of asking"'],
+    waiting: ja ? ['Claude が CI や処理の待ちで終わった直後', 'CLAUDE.md に「待ちはバックグラウンドで回して、結果を見てから報告する」と書く']
+      : ['right after Claude ended waiting on CI or a task', 'add to CLAUDE.md: "wait for CI in the background and report the result"'],
+    'needs-go': ja ? ['Claude が go を求めて止まった直後', 'CLAUDE.md に、確認なしで進めてよい操作 (自分の repo への push など) を書いておく']
+      : ['right after Claude stopped to ask for a go', 'list in CLAUDE.md what may proceed without asking (e.g. pushing to your own repos)'],
+  };
+  // A nudge when at least half of the prompt's uses came right after Claude
+  // stopped (any kind above); the most common kind names the fix.
+  const nudge = (x) => {
+    const n = (x.after || []).reduce((a, [, v]) => a + v, 0);
+    const stops = (x.after || []).filter(([k]) => NUDGE[k]);
+    const s = stops.reduce((a, [, v]) => a + v, 0);
+    return n >= 5 && s / n >= 0.5 ? [stops[0][0], Math.round((s / n) * 100), ...NUDGE[stops[0][0]]] : null;
+  };
+  for (const x of r.repeated.filter((y) => nudge(y)).slice(0, 1)) {
+    const [, pct, when, how] = nudge(x);
+    const t = clip(x.text, 24);
+    acts.push({ kind: 'claude-md', title: ja ? `「${t}」を打たずに済むようにする` : `Stop needing to type "${t}"`,
+      why: ja ? `${x.count} 回のうち ${pct}% が Claude が手を止めた直後。いちばん多いのは${when}` : `${pct}% of ${x.count} came right after Claude stopped, most often ${when}`, how });
+  }
+  for (const x of r.repeated.filter((y) => !nudge(y) && !coveredBy(y.text, existing)).slice(0, 2)) {
     const t = clip(x.text, 24);
     acts.push({ kind: 'skill', title: ja ? `「${t}」を skill / コマンド化` : `Turn "${t}" into a skill`,
       why: ja ? `${x.count} 回同じ指示を打っている` : `typed ${x.count} times`, how: ja ? '~/.claude/skills/<name>/SKILL.md に手順を書く' : 'write the steps into ~/.claude/skills/<name>/SKILL.md' });

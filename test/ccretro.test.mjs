@@ -13,7 +13,7 @@ process.env.XDG_CACHE_HOME = path.join(tmp, 'cache');
 process.env.XDG_CONFIG_HOME = path.join(tmp, 'config');
 process.env.XDG_DATA_HOME = path.join(tmp, 'data');
 
-const { collect, dayKey, errorCause } = await import('../src/collect.mjs');
+const { collect, dayKey, errorCause, endingKind } = await import('../src/collect.mjs');
 const { analyze, compare } = await import('../src/analyze.mjs');
 const { digest, heuristic, clip, coveredBy } = await import('../src/insight.mjs');
 const { render } = await import('../src/render.mjs');
@@ -422,4 +422,45 @@ test('tool errors are grouped by cause; redact drops hook names; a busy hook is 
   execFileSync(process.execPath, ['bin/ccretro.mjs', '--no-ai', '--no-open', '--redact', '-d', '7', '-o', out], { env: process.env, stdio: 'ignore' });
   for (const f of [out, out.replace(/\.html$/, '.json')]) assert.doesNotMatch(fs.readFileSync(f, 'utf8'), /acme-guard/, f);
   fs.rmSync(path.join(process.env.CLAUDE_CONFIG_DIR, 'projects', '-h'), { recursive: true });
+});
+
+test('endingKind reads how Claude ended its turn', () => {
+  assert.equal(endingKind('Done.\n\n残作業:\n- F-002 の hunt はまだ\n- docs のビルドは未実施'), 'listed');
+  assert.equal(endingKind('Pushed.\n\n## Remaining\n- run the e2e suite'), 'listed');
+  assert.equal(endingKind('1 と 2、どっちにする？'), 'asked');
+  assert.equal(endingKind('Should I also bump the version?'), 'asked');
+  assert.equal(endingKind('PR #5 は CI と再レビュー待ち。'), 'waiting');
+  assert.equal(endingKind('Pushed.\n\n残作業:\n- traQ F-002 の返事待ち\n- gardener の hunt はまだ'), 'listed');
+  assert.equal(endingKind('残作業:\n- **kt の go が要る**: push と返信'), 'needs-go');
+  assert.equal(endingKind('全部終わった。\n\n残作業なし'), 'done');
+  assert.equal(endingKind('Tests pass: 29/29.'), 'reported');
+  assert.equal(endingKind(''), null);
+});
+
+test('repeated prompts say how Claude ended before them, and suggest CLAUDE.md over a skill', async () => {
+  const say = (t, id, text) => ({ type: 'assistant', timestamp: iso(t), message: { id, model: 'claude-test', usage: { input_tokens: 1, output_tokens: 1 }, content: [{ type: 'text', text }] } });
+  const recs = [];
+  for (let i = 0; i < 6; i++) {
+    const t = base + i * 60e3;
+    recs.push(say(t, `n${i}`, i < 5 ? 'Committed.\n\nRemaining:\n- run the e2e suite' : 'Which one should I take?'));
+    recs.push(user(t + 1000, ['keep going', 'keep going!', 'Keep going.', 'keep going', 'keep going', 'keep going'][i], `n-u${i}`));
+  }
+  writeSession('-n', 's16', path.join(home, 'nudge'), recs);
+  const { sessions: s4 } = await collect({ warn() {} });
+  const r = analyze(s4, { days: 7 });
+  const x = r.repeated.find((y) => /keep going/i.test(y.text));
+  assert.deepEqual(x.after, [['listed', 5], ['asked', 1]]);
+  assert.match(digest(r, { skills: [], agents: [], commands: [], hookEvents: [], projectClaudeMd: [] }, 'en'), /keep going" ×6 in 1 projects — after: listed=5, asked=1/);
+  const acts = heuristic(r, { skills: [], commands: [], projectClaudeMd: [] }, 'en').nextActions;
+  assert.ok(acts.some((a) => a.kind === 'claude-md' && /keep going/.test(a.title) && /100% of 6 came right after Claude stopped, most often right after Claude ended on a list/.test(a.why)));
+  assert.ok(!acts.some((a) => a.kind === 'skill' && /keep going/.test(a.title)));
+  fs.rmSync(path.join(process.env.CLAUDE_CONFIG_DIR, 'projects', '-n'), { recursive: true });
+});
+
+test('drawn-out endings group with the plain prompt', async () => {
+  writeSession('-e', 's17', path.join(home, 'elong'), ['ship it。', 'ship itよおおおおおおお', 'ship itよ'].map((x, i) => user(base + i * 1000, x, `e-u${i}`)));
+  const { sessions: s5 } = await collect({ warn() {} });
+  const x = analyze(s5, { days: 7 }).repeated.find((y) => /ship it/.test(y.text));
+  assert.equal(x.count, 3);
+  fs.rmSync(path.join(process.env.CLAUDE_CONFIG_DIR, 'projects', '-e'), { recursive: true });
 });
