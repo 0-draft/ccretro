@@ -45,7 +45,7 @@ export function analyze(sessions, { days, until, pricing = {} }) {
   const fromKey = days ? dayKey(from) : '0000';
 
   const daily = {};
-  const agg = { tools: {}, skills: {}, agents: {}, models: {}, exts: {}, cmds: {} };
+  const agg = { tools: {}, skills: {}, agents: {}, models: {}, exts: {}, cmds: {}, errTools: {} };
   const byModel = {};
   const tot = { prompts: 0, interrupts: 0, rejects: 0, toolErrors: 0, compacts: 0, turnMs: 0, tok: { in: 0, out: 0, cr: 0, cc: 0 } };
   const heat = Array.from({ length: 7 }, () => Array(24).fill(0));
@@ -233,6 +233,8 @@ export function analyze(sessions, { days, until, pricing = {} }) {
       interrupts: tot.interrupts, rejects: tot.rejects, toolErrors: tot.toolErrors, compacts: tot.compacts,
       interruptsPer100: per100(tot.interrupts), rejectsPer100: per100(tot.rejects),
       errorRate: toolCalls ? Math.round((tot.toolErrors / toolCalls) * 1000) / 10 : 0,
+      // [tool, errors, calls]: which tools the errors come from, and how often each one fails.
+      errorsByTool: top(agg.errTools, 8).map(([k, n]) => [k, n, agg.tools[k] || n]),
     },
     style: {
       medianChars: median, shareShort: lens.length ? short / lens.length : 0,

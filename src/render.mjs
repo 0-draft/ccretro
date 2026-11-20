@@ -87,6 +87,8 @@ td{padding:7px 10px;border-bottom:1px dashed var(--line);font-variant-numeric:ta
 td.pn{position:relative;min-width:160px}td.pn i{position:absolute;inset:4px auto 4px 0;background:var(--accent-soft);border-radius:4px}td.pn span{position:relative;padding-left:6px}
 td.tt{white-space:normal;color:var(--muted);font-size:12.5px;min-width:220px}
 .fr{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px}
+.fr+.bars{margin-top:28px}
+.bar.w{grid-template-columns:minmax(0,1fr) auto}
 .fr div b{font:400 24px var(--serif);display:block}.fr div span{font-size:12.5px;color:var(--muted)}
 .rep{list-style:none;padding:0;margin:0}.rep li{display:flex;gap:12px;padding:7px 0;border-bottom:1px dashed var(--line);font-size:14px}
 .rep li b{min-width:40px;color:var(--accent);font-weight:600}
@@ -104,7 +106,7 @@ const T = ja ? {
   k:{cost:'API 換算コスト (推定)',wd:'最もアクティブな曜日',hr:'ピーク時間帯',ses:'セッション',pr:'指示した回数',days:'アクティブ日数',hrs:'利用時間',streak:'最長連続日数',proj:'プロジェクト',prs:'PR'},
   activity:'Claude Code との利用時間', prompts:'指示', hours:'利用時間', cost:'コスト', costModels:'モデル別コスト (API 換算)', costNote:'API 定価での換算。サブスクリプションの請求額ではない。', heat:'曜日 × 時間', themes:'取り組んだこと', fluency:'スキルを広げる',
   fl:{delegation:'委任',description:'説明',discernment:'識別力',diligence:'勤勉さ'}, copy:'プロンプトをコピー', copied:'コピーしました',
-  patterns:'目立った癖', next:'次にやるといいこと', usage:'使い方の内訳', tools:'ツール', skills:'Skills', agents:'サブエージェント', mcp:'MCP', cmds:'スラッシュコマンド', exts:'編集したファイル', models:'モデル', prRepos:'PR (リポジトリ別)',
+  patterns:'目立った癖', next:'次にやるといいこと', usage:'使い方の内訳', tools:'ツール', skills:'Skills', agents:'サブエージェント', mcp:'MCP', cmds:'スラッシュコマンド', exts:'編集したファイル', models:'モデル', prRepos:'PR (リポジトリ別)', errTools:'エラーの出たツール (件数 · そのツールの失敗率)',
   friction:'摩擦', fi:{interrupts:'中断',rejects:'ツール拒否',toolErrors:'ツールエラー',compacts:'コンパクション'}, per100:'/100指示', perCall:'% (ツール呼び出し比)',
   repeated:'何度も打っている指示', aiNote:(d)=>'文章は'+d+'のデータから生成。数値は期間切替に追従します。', none:'なし',
   snippet:'スニペット', projects:'プロジェクト別', pcol:{name:'プロジェクト',prompts:'指示',sessions:'セッション',hours:'時間',titles:'主なセッション'}, vsPrev:'前期間比', followUp:'前回の提案、その後', status:{done:'できた',partial:'一部',['not-yet']:'まだ',unclear:'不明'}, cache:'キャッシュヒット率', hrsUnit:'時間', foot:'データはこのマシンの ~/.claude/projects から読み取り、HTML に生のプロンプトは含めていません。', cleanup:(n)=>'Claude Code は '+n+' 日より古い履歴を削除する。それより前は、過去の実行時に ccretro が保存した要約だけ。', excl:(n)=>n+' 件のプロジェクトを除外。',
@@ -114,7 +116,7 @@ const T = ja ? {
   k:{cost:'API-equivalent cost (est.)',wd:'Most active day',hr:'Peak hour',ses:'Sessions',pr:'Prompts',days:'Active days',hrs:'Active hours',streak:'Best streak',proj:'Projects',prs:'Pull requests'},
   activity:'Activity', prompts:'Prompts', hours:'Hours', cost:'Cost', costModels:'Cost by model (API equivalent)', costNote:'At API list prices; not what a subscription bills.', heat:'Weekday × hour', themes:'What you worked on', fluency:'Growing your skills',
   fl:{delegation:'Delegation',description:'Description',discernment:'Discernment',diligence:'Diligence'}, copy:'Copy prompt', copied:'Copied',
-  patterns:'Patterns', next:'What to do next', usage:'How you used it', tools:'Tools', skills:'Skills', agents:'Subagents', mcp:'MCP', cmds:'Slash commands', exts:'Files edited', models:'Models', prRepos:'PRs by repository',
+  patterns:'Patterns', next:'What to do next', usage:'How you used it', tools:'Tools', skills:'Skills', agents:'Subagents', mcp:'MCP', cmds:'Slash commands', exts:'Files edited', models:'Models', prRepos:'PRs by repository', errTools:'Tool errors by tool (count · that tool\'s failure rate)',
   friction:'Friction', fi:{interrupts:'Interrupts',rejects:'Rejected tools',toolErrors:'Tool errors',compacts:'Compactions'}, per100:'/100 prompts', perCall:'% of tool calls',
   repeated:'Prompts you keep typing', aiNote:(d)=>'Narrative written from '+d+'. Numbers follow the period switch.', none:'none',
   snippet:'Snippet', projects:'By project', pcol:{name:'Project',prompts:'Prompts',sessions:'Sessions',hours:'Hours',titles:'Top sessions'}, vsPrev:'vs prev', followUp:'Last time\'s suggestions', status:{done:'done',partial:'partial',['not-yet']:'not yet',unclear:'unclear'}, cache:'Cache hit rate', hrsUnit:'h', foot:'Read from ~/.claude/projects on this machine. Raw prompts are not embedded in this file.', cleanup:(n)=>'Claude Code deletes history older than '+n+' days; anything earlier comes from summaries ccretro archived on previous runs.', excl:(n)=>n+' project filter(s) applied.',
@@ -173,6 +175,11 @@ function bars(title, rows) {
   if (!rows || !rows.length) return '<div><h4>'+title+'</h4><div class="empty">'+T.none+'</div></div>';
   const max = rows[0][1];
   return '<div><h4>'+title+'</h4>' + rows.map(([k, v]) => '<div class="bar"><div class="l" title="'+esc(k)+'"><i style="width:'+(v/max*100)+'%"></i><span>'+esc(k.replace(/^mcp__/,''))+'</span></div><div class="v">'+fmt(v)+'</div></div>').join('') + '</div>';
+}
+
+function errBars(title, rows) {
+  const max = rows[0][1];
+  return '<div><h4>'+title+'</h4>' + rows.map(([k, n, c]) => '<div class="bar w"><div class="l" title="'+esc(k)+'"><i style="width:'+(n/max*100)+'%"></i><span>'+esc(k.replace(/^mcp__/,''))+'</span></div><div class="v">'+fmt(n)+' · '+(Math.round(n/c*1000)/10)+'%</div></div>').join('') + '</div>';
 }
 
 function barsUsd(title, rows) {
@@ -249,7 +256,8 @@ function draw() {
   h += '<section><h2>'+T.friction+'</h2><div class="fr">' + ['interrupts','rejects','toolErrors','compacts'].map((k) => {
     const per = { interrupts: f.interruptsPer100+T.per100, rejects: f.rejectsPer100+T.per100, toolErrors: f.errorRate+T.perCall }[k];
     return '<div><b>'+f[k]+'</b><span>'+T.fi[k]+(per !== undefined ? ' · '+per : '')+'</span></div>';
-  }).join('') + '<div><b>'+Math.round(t.cacheHitRate*100)+'%</b><span>'+T.cache+'</span></div></div></section>';
+  }).join('') + '<div><b>'+Math.round(t.cacheHitRate*100)+'%</b><span>'+T.cache+'</span></div></div>'
+    + ((f.errorsByTool || []).length ? '<div class="bars">'+errBars(T.errTools, f.errorsByTool)+'</div>' : '') + '</section>';
 
   const u = r.usage;
   h += '<section><h2>'+T.usage+'</h2><div class="bars">' + bars(T.tools, u.tools.slice(0, 10)) + bars(T.skills, u.skills) + bars(T.agents, u.agents) + bars(T.mcp, u.mcp) + bars(T.cmds, u.cmds) + bars(T.exts, u.exts) + bars(T.models, u.models) + bars(T.prRepos, u.prRepos) + barsUsd(T.costModels, u.costByModel) + '</div></section>';

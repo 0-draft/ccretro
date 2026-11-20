@@ -9,7 +9,7 @@ const CACHE_VERSION = 5;
 // Bump when summarize() learns a new field. Cached summaries of transcripts
 // still on disk are re-parsed; ones Claude Code already deleted are kept as-is
 // (bumping CACHE_VERSION instead would park the whole archive aside).
-const PARSE_REV = 1;
+const PARSE_REV = 2;
 const IDLE_MS = 5 * 60e3; // gaps longer than this end an activity span
 const PROMPT_MAX = 400;
 
@@ -74,6 +74,7 @@ function newDay() {
     tok: { in: 0, out: 0, cr: 0, cc: 0 },
     byModel: {}, // model[@tier] → { in, out, cr, cc5, cc1h } for cost estimates
     tools: {}, skills: {}, agents: {}, models: {}, exts: {}, cmds: {},
+    errTools: {}, // tool name → tool_results flagged is_error
   };
 }
 const inc = (o, k, n = 1) => { o[k] = (o[k] || 0) + n; };
@@ -86,6 +87,7 @@ async function summarize(file) {
     prs: {}, // PR url → { t: first seen, repo }
   };
   const seenMsg = new Set();
+  const toolName = new Map(); // tool_use id → tool name, to attribute errors
   const day = (ms) => (s.days[dayKey(ms)] ||= newDay());
 
   const rl = readline.createInterface({ input: fs.createReadStream(file), crlfDelay: Infinity });
@@ -151,6 +153,7 @@ async function summarize(file) {
       for (const b of Array.isArray(m.content) ? m.content : []) {
         if (b?.type !== 'tool_use') continue;
         inc(dd.tools, b.name);
+        if (b.id) toolName.set(b.id, b.name);
         const inp = b.input || {};
         if (b.name === 'Skill' && inp.skill) inc(dd.skills, inp.skill);
         if ((b.name === 'Agent' || b.name === 'Task')) inc(dd.agents, inp.subagent_type || 'general-purpose');
@@ -172,7 +175,13 @@ async function summarize(file) {
           const txt = typeof b.content === 'string' ? b.content
             : Array.isArray(b.content) ? b.content.map((x) => x?.text || '').join('') : '';
           if (/doesn't want to proceed|was rejected|denied by the user/i.test(txt)) day(ms).rejects++;
-          else if (b.is_error) day(ms).toolErrors++;
+          else if (b.is_error) {
+            const dd = day(ms);
+            dd.toolErrors++;
+            // A result whose tool_use is in another file (a resumed session) stays unattributed.
+            const name = toolName.get(b.tool_use_id);
+            if (name) inc(dd.errTools, name);
+          }
         }
       }
       const p = promptText(c);

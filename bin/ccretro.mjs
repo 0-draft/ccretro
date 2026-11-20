@@ -146,6 +146,12 @@ if (o.redact) {
     r.usage.mcp = mask(r.usage.mcp, PUBLIC_MCP, 'mcp');
     r.usage.prRepos = mask(r.usage.prRepos, new Set(), 'repo');
     r.usage.tools = sumBy(r.usage.tools.map(([k, v]) => [k.startsWith('mcp__') ? 'mcp tools' : k, v]));
+    const errs = {};
+    for (const [k, n, c] of r.friction.errorsByTool) {
+      const e = (errs[k.startsWith('mcp__') ? 'mcp tools' : k] ||= [0, 0]);
+      e[0] += n; e[1] += c;
+    }
+    r.friction.errorsByTool = Object.entries(errs).map(([k, [n, c]]) => [k, n, c]).sort((a, b) => b[1] - a[1]);
     r.usage.exts = r.usage.exts.filter(([k]) => k.startsWith('.'));
   }
   inv = {
