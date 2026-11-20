@@ -94,11 +94,11 @@ export function errorCause(text) {
   if (/allowed_domains cannot widen/.test(t)) return 'sandbox: allowed_domains refused';
   if (/<sandbox_violations>|Operation not permitted/.test(t)) return 'sandbox';
   if (/^<tool_use_error>Blocked: sleep/.test(t)) return 'blocked: sleep before a command';
-  if (/^Permission to use .* (has been|was) denied|after a cd whose target cannot be resolved/.test(t)) return 'permission rule';
+  if (/^Permission to use .* (has been|was) denied/.test(t) || /after a cd whose target cannot be resolved/.test(t)) return 'permission rule';
   if (/File access denied/.test(t)) return 'file access denied';
   if (/TimeoutError|Timeout \d+ms exceeded|timeout of \d+ms|timed out/i.test(t)) return 'timeout';
   if (/net::ERR_|ECONNREFUSED|ECONNRESET|ENOTFOUND|ETIMEDOUT|getaddrinfo/.test(t)) return 'network';
-  if (/^File does not exist|ENOENT|No such file or directory/.test(t)) return 'file not found';
+  if (/^File does not exist/.test(t) || /ENOENT|No such file or directory/.test(t)) return 'file not found';
   if (/^<tool_use_error>(File has not been read yet|File has been modified since read|String to replace not found|Found \d+ matches)/.test(t)) return 'edit: stale or ambiguous match';
   if (/Concurrent subagent limit/.test(t)) return 'subagent limit';
   m = t.match(/(?:status code|returned|Status:?) (\d{3})\b/);
