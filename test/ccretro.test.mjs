@@ -42,7 +42,10 @@ writeSession('-a', 's1', path.join(home, 'proj-a'), [
   asst(base + 1000, 'm1', ['Bash', 'Edit']),
   asst(base + 1500, 'm1', ['Skill']), // same message id split across blocks: tokens counted once
   result(base + 2000, true, 'boom', 'm1-1'), // the Edit call above
-  result(base + 2500, false, "The user doesn't want to proceed with this tool use."),
+  result(base + 2500, true, "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file)."),
+  // Not rejections: tool output that merely contains the words.
+  result(base + 2600, false, 'npm error The operation was rejected by your operating system.'),
+  result(base + 2700, false, "if (/doesn't want to proceed|was rejected/.test(txt)) rejects++;"),
   user(base + 60e3, '[Request interrupted by user]', 'u-int'),
   user(base + 120e3, '全部やれよ', 'u2'),
   user(base + 130e3, '<system-reminder>ignore me</system-reminder>', 'u-sys'),
