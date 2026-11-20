@@ -9,7 +9,8 @@ const CACHE_VERSION = 5;
 // Bump when summarize() learns a new field. Cached summaries of transcripts
 // still on disk are re-parsed; ones Claude Code already deleted are kept as-is
 // (bumping CACHE_VERSION instead would park the whole archive aside).
-const PARSE_REV = 2;
+const PARSE_REV = 3;
+const REJECTED = /^The user doesn't want to (proceed|take this action)/;
 const IDLE_MS = 5 * 60e3; // gaps longer than this end an activity span
 const PROMPT_MAX = 400;
 
@@ -174,7 +175,10 @@ async function summarize(file) {
           if (b?.type !== 'tool_result') continue;
           const txt = typeof b.content === 'string' ? b.content
             : Array.isArray(b.content) ? b.content.map((x) => x?.text || '').join('') : '';
-          if (/doesn't want to proceed|was rejected|denied by the user/i.test(txt)) day(ms).rejects++;
+          // Only the harness's own rejection message: matching anywhere in the
+          // text also counted npm's "operation was rejected by your operating
+          // system" and any file or command output that quoted the phrase.
+          if (REJECTED.test(txt.trimStart())) day(ms).rejects++;
           else if (b.is_error) {
             const dd = day(ms);
             dd.toolErrors++;
