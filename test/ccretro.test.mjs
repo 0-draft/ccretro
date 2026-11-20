@@ -313,10 +313,10 @@ test('pull requests: deduplicated across refreshes and sessions, in the period f
 test('tool errors are attributed to the tool that failed; redact hides MCP server names', async () => {
   writeSession('-t', 's14', path.join(home, 'errs'), [
     user(base, 'fetch it', 'u14'),
-    asst(base + 1000, 'm14', ['mcp__acmecorp__lookup', 'WebFetch', 'WebFetch']),
+    asst(base + 1000, 'm14', ['mcp__acmecorp__lookup', 'mcp__acmecorp__list', 'WebFetch', 'WebFetch']),
     result(base + 2000, true, 'boom', 'm14-0'),
-    result(base + 2100, true, 'boom', 'm14-1'),
-    result(base + 2200, true, 'boom', 'm14-2'),
+    result(base + 2100, true, 'boom', 'm14-2'),
+    result(base + 2200, true, 'boom', 'm14-3'),
     result(base + 2300, true, 'boom', 'resumed-elsewhere'), // tool_use not in this file
   ]);
   const { sessions: s2 } = await collect({ warn() {} });
@@ -331,7 +331,12 @@ test('tool errors are attributed to the tool that failed; redact hides MCP serve
   assert.match(fs.readFileSync(out, 'utf8'), /"errorsByTool":\[\["WebFetch",2,2\]/);
   execFileSync(process.execPath, ['bin/ccretro.mjs', '--no-ai', '--no-open', '--redact', '-d', '7', '-o', out], { env: process.env, stdio: 'ignore' });
   for (const f of [out, out.replace(/\.html$/, '.json')]) assert.doesNotMatch(fs.readFileSync(f, 'utf8'), /acmecorp/, f);
-  assert.match(fs.readFileSync(out, 'utf8'), /\["mcp tools",1,1\]/);
+  assert.match(fs.readFileSync(out, 'utf8'), /\["mcp tools",1,2\]/); // both MCP calls, not just the failing one
+
+  // A summary archived before PARSE_REV 2 has calls but no errTools: it must not dilute the rates.
+  const old = s2.map((x) => ({ ...x, days: Object.fromEntries(Object.entries(x.days).map(([k, d]) => [k, { ...d, errTools: undefined }])) }));
+  const mixed = analyze([...s2, ...old.map((x) => ({ ...x, sessionId: `${x.sessionId}-old`, file: `${x.file}.old` }))], { days: 7 });
+  assert.deepEqual(mixed.friction.errorsByTool[0], ['WebFetch', 2, 2]);
   fs.rmSync(path.join(process.env.CLAUDE_CONFIG_DIR, 'projects', '-t'), { recursive: true });
 });
 

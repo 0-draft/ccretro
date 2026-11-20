@@ -101,13 +101,13 @@ if (days === 0 || days > cleanupDays) {
 }
 
 const reports = {};
-for (const k of new Set(['7', '30', '90', 'all', mainKey])) reports[k] = analyze(kept, { days: k === 'all' ? 0 : Number(k), pricing });
+for (const k of new Set(['7', '30', '90', 'all', mainKey])) reports[k] = analyze(kept, { days: k === 'all' ? 0 : Number(k), pricing, groupMcp: !!o.redact });
 const earliest = Math.min(...kept.filter((s) => s.start).map((s) => s.start));
 for (const [k, r] of Object.entries(reports)) {
   if (k === 'all') continue;
   // Skip the comparison when the previous window predates the oldest data we have.
   const prevFrom = r.period.from - Number(k) * 86400e3;
-  r.compare = earliest <= prevFrom + 86400e3 ? compare(r, analyze(kept, { days: Number(k), until: r.period.from, pricing })) : null;
+  r.compare = earliest <= prevFrom + 86400e3 ? compare(r, analyze(kept, { days: Number(k), until: r.period.from, pricing, groupMcp: !!o.redact })) : null;
 }
 const ordered = Object.fromEntries(['7', '30', '90', 'all', mainKey].filter((k, i, a) => a.indexOf(k) === i)
   .sort((a, b) => (a === 'all' ? 1e9 : +a) - (b === 'all' ? 1e9 : +b)).map((k) => [k, reports[k]]));
@@ -146,12 +146,6 @@ if (o.redact) {
     r.usage.mcp = mask(r.usage.mcp, PUBLIC_MCP, 'mcp');
     r.usage.prRepos = mask(r.usage.prRepos, new Set(), 'repo');
     r.usage.tools = sumBy(r.usage.tools.map(([k, v]) => [k.startsWith('mcp__') ? 'mcp tools' : k, v]));
-    const errs = {};
-    for (const [k, n, c] of r.friction.errorsByTool) {
-      const e = (errs[k.startsWith('mcp__') ? 'mcp tools' : k] ||= [0, 0]);
-      e[0] += n; e[1] += c;
-    }
-    r.friction.errorsByTool = Object.entries(errs).map(([k, [n, c]]) => [k, n, c]).sort((a, b) => b[1] - a[1]);
     r.usage.exts = r.usage.exts.filter(([k]) => k.startsWith('.'));
   }
   inv = {
