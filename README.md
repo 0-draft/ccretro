@@ -18,7 +18,7 @@ Claude Code ships `/insights` and `/usage`, and they are good. Use them. ccretro
 | Change over time | no | every KPI against the previous period of the same length |
 | Follow-through | suggestions are one-off | the next retro checks whether last time's suggestions happened (skill now exists, repeated prompt dropped) |
 | Framing | friction, quick wins | 4D AI Fluency (delegation, description, discernment, diligence) with evidence from your own prompts |
-| Repeated prompts | no | the instructions you keep typing, ranked; the usual source of skill and hook ideas |
+| Repeated prompts | no | the instructions you keep typing, ranked, with how Claude's previous message ended (a list of remaining work, a question, waiting on CI); the usual source of skill, hook and CLAUDE.md ideas |
 | Sharing | no | `--redact` produces a page you can screenshot without leaking project, skill or session names |
 | Applying | `/usage` can apply some recommendations | `/ccretro` skill checks your existing skills and CLAUDE.md first and prefers updating them over adding new ones |
 
@@ -32,7 +32,7 @@ Claude Code ships `/insights` and `/usage`, and they are good. Use them. ccretro
 - AI fluency in four cards, each with evidence and a copyable prompt
 - What happened to last time's suggestions
 - What to do next, with ready-to-paste snippets
-- Prompts you keep typing
+- Prompts you keep typing, and how Claude's message right before them ended. A go-ahead you type after most "here's what's left" endings is a CLAUDE.md fix, not a skill
 - Friction: interrupts, rejected tool uses, tool error rate, compactions, prompt cache hit rate, which tools the errors come from (count and each tool's own failure rate), and why they failed (a hook that blocked the call, the auto-mode classifier, the sandbox, a permission rule, a timeout, a non-zero exit)
 - Tools, skills, subagents, MCP servers, slash commands, file types, models, pull requests by repository
 

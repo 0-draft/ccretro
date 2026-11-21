@@ -21,7 +21,9 @@ export function projectName(cwd) {
 // Normalise a prompt so "全部やれ。" and "全部やれよ" land together.
 function norm(t) {
   return t.toLowerCase().replace(/https?:\/\/\S+/g, '<url>').replace(/\/\S+/g, '<path>')
-    .replace(/[\s。、.,!！?？ー〜~「」"'`]+/g, '').replace(/(よ|ね|な|ぜ|ぞ|え)+$/u, '').slice(0, 60);
+    .replace(/[\s。、.,!！?？ー〜~「」"'`]+/g, '')
+    // drawn-out endings: 全部やれよおおおお → 全部やれよ → 全部やれ
+    .replace(/[ぁあぃいぅうぇえぉおっ]{2,}$/u, '').replace(/(よ|ね|な|ぜ|ぞ|え)+$/u, '').slice(0, 60);
 }
 
 // Merge overlapping [start,end] spans (parallel sessions count once).
@@ -181,12 +183,16 @@ export function analyze(sessions, { days, until, pricing = {}, groupMcp = false 
     if (p.cmd) continue;
     const k = norm(p.text);
     if (k.length < 2) continue;
-    (groups[k] ||= { sample: p.text.slice(0, 120), n: 0, projects: new Set() }).n++;
+    (groups[k] ||= { texts: {}, n: 0, projects: new Set(), after: {} }).n++;
+    inc(groups[k].texts, p.text.slice(0, 120));
     groups[k].projects.add(p.project);
+    if (p.after) inc(groups[k].after, p.after);
   }
   const repeated = Object.values(groups).filter((g) => g.n >= 3)
     .sort((a, b) => b.n - a.n).slice(0, 15)
-    .map((g) => ({ text: g.sample, count: g.n, projects: g.projects.size }));
+    // `after`: how Claude's previous message ended, [kind, count] most common first.
+    // The most common spelling stands for the group, not the first one seen.
+    .map((g) => ({ text: top(g.texts, 1)[0][0], count: g.n, projects: g.projects.size, after: top(g.after, 6) }));
 
   const mcp = {};
   for (const [k, v] of Object.entries(agg.tools)) {

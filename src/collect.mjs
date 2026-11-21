@@ -9,7 +9,7 @@ const CACHE_VERSION = 5;
 // Bump when summarize() learns a new field. Cached summaries of transcripts
 // still on disk are re-parsed; ones Claude Code already deleted are kept as-is
 // (bumping CACHE_VERSION instead would park the whole archive aside).
-const PARSE_REV = 4;
+const PARSE_REV = 5;
 const REJECTED = /^The user doesn't want to (proceed|take this action)/;
 const IDLE_MS = 5 * 60e3; // gaps longer than this end an activity span
 const PROMPT_MAX = 400;
@@ -69,6 +69,22 @@ const NOISE = [
   /^<task-notification>/, /^\[Request interrupted/, /^Your .* usage limit/,
 ];
 
+// How Claude's last message ended before the user typed. A prompt repeated
+// many times is often a reply to the same kind of ending ("here is what's
+// left", a question, "waiting on CI"), and that ending is what to fix.
+export function endingKind(text) {
+  const t = String(text || '').trimEnd();
+  if (!t) return null;
+  const tail = t.slice(-1500);
+  const lastLine = t.split('\n').filter((l) => l.trim()).pop() || '';
+  if (/残作業なし|nothing (else )?(left|remaining)|no remaining (work|items)/i.test(tail)) return 'done';
+  if (/go (が要る|待ち|をもらったら|が出たら)|承認待ち|needs? your (go|ok|approval)|waiting (for|on) your (go|ok|approval)|ok to (push|post|send|merge)\?/i.test(tail)) return 'needs-go';
+  if (/[?？]\s*$/.test(lastLine) || /どっち|どちら|どうする|決めて(ほしい|ください)|should I\b|want me to|which (one|option) /i.test(t.slice(-300))) return 'asked';
+  if (/残作業|残り|未着手|未実施|^#+\s*(remaining|next steps|todo|open items|follow-?ups?)|^(remaining|next steps|todo|open items|follow-?ups?):/im.test(tail)) return 'listed';
+  if (/待ち|完了通知|監視中|走って(る|いる)|still running|running in the background|waiting (for|on)\b|once (it|the run|CI) (finishes|completes)/i.test(t.slice(-400))) return 'waiting';
+  return 'reported';
+}
+
 function newDay() {
   return {
     prompts: 0, interrupts: 0, rejects: 0, toolErrors: 0, compacts: 0, turnMs: 0,
@@ -117,6 +133,7 @@ async function summarize(file) {
     prs: {}, // PR url → { t: first seen, repo }
   };
   const seenMsg = new Set();
+  let lastText = ''; // the main chain's latest assistant text, for endingKind()
   const toolName = new Map(); // tool_use id → tool name, to attribute errors
   const day = (ms) => (s.days[dayKey(ms)] ||= newDay());
 
@@ -181,6 +198,7 @@ async function summarize(file) {
         }
       }
       for (const b of Array.isArray(m.content) ? m.content : []) {
+        if (b?.type === 'text' && b.text?.trim() && !d.isSidechain) lastText = b.text;
         if (b?.type !== 'tool_use') continue;
         inc(dd.tools, b.name);
         if (b.id) toolName.set(b.id, b.name);
@@ -234,7 +252,7 @@ async function summarize(file) {
       if (!text && !p.img) continue;
       if (NOISE.some((r) => r.test(text))) continue;
       day(ms).prompts++;
-      s.prompts.push({ u: d.uuid, t: ms, text: text.slice(0, PROMPT_MAX), len: text.length, img: p.img || undefined });
+      s.prompts.push({ u: d.uuid, t: ms, text: text.slice(0, PROMPT_MAX), len: text.length, img: p.img || undefined, after: endingKind(lastText) || undefined });
     }
   }
   return s;
